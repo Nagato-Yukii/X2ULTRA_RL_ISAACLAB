@@ -6,13 +6,14 @@
 
 项目的核心文件结构如下，以便快速了解代码组织：
 
+```
 X2Ultra_RL_IsaacLab/
 ├── lab_settings/
-│ ├── assets/robots/ # 机器人引用及配置
-│ │ ├── actuators.py # 对机器人电机参数进行精确建模
-│ │ └── config_settings.py # 机器人通用配置
-│ ├── tasks/ # 定义训练任务与奖励函数
-│ └── agents/ # 训练策略配置 (如 PPO)
+│   ├── assets/robots/ # 机器人引用及配置
+│   │   ├── actuators.py # 对机器人电机参数进行精确建模
+│   │   └── config_settings.py # 机器人通用配置
+│   ├── tasks/ # 定义训练任务与奖励函数
+│   └── agents/ # 训练策略配置 (如 PPO)
 │
 ├── robot_model/ # 机器人模型文件 (如 URDF)
 │
@@ -27,5 +28,6 @@ X2Ultra_RL_IsaacLab/
 ├── LICENCE # 项目许可证
 ├── NOTICE
 └── readme.md # 项目说明文档
+```
 
 本项目由unitree_rl_lab改编，导入和配置unitree机器人的配置被修改，旨在复用于训练x2ultra
