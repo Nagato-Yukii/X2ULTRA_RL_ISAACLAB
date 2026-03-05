@@ -1,0 +1,101 @@
+# ╔═══════════════════════════════════════════════════════════════════════╗
+# ║  X2Ultra Walk Straight — Sim2Sim Configuration                      ║
+# ║  Deploys the Isaac Lab-trained velocity-tracking policy to MuJoCo.  ║
+# ╚═══════════════════════════════════════════════════════════════════════╝
+#
+# To create a config for a NEW task, copy this file and modify the sections
+# marked with ★.  Typically you only need to change:
+#   1. policy_path                (point to the new model)
+#   2. action.joints / pd_controller  (if the robot or joints change)
+#   3. observation settings       (if your policy uses different obs)
+#   4. command                    (initial velocity command)
+
+# ─── Paths (relative to this YAML file) ──────────────────────────────
+policy_path: "../../pretrained/walk_straight/exported/policy.pt"
+xml_path:    "../robot/X2_URDF/scene.xml"
+
+# ─── Simulation Parameters ───────────────────────────────────────────
+# Must match the training settings:  sim_dt × decimation = control_dt
+sim_dt:     0.002       # Physics timestep (s)
+decimation: 10          # Policy runs every 10 physics steps → 50 Hz
+duration:   60.0        # Total wall-clock sim time (s)
+
+# ─── Initial base position ───────────────────────────────────────────
+init_base_pos: [0.0, 0.0, 0.66]
+
+# ─── Velocity Command  [lin_vel_x, lin_vel_y, ang_vel_z] ─────────── ★
+command: [0.0, 0.0, 0.0]
+
+# ─── Observation Configuration ─────────────────────────────────────── ★
+# These MUST match the training env's PolicyCfg.
+observation:
+  history_length: 5       # Number of frames stacked (total obs = frame × N)
+  ang_vel_scale:  0.2     # Scale applied to angular velocity
+  dof_vel_scale:  0.05    # Scale applied to joint velocity
+
+# ─── Action Configuration ─────────────────────────────────────────── ★
+# Joint names listed in **policy order** — the order the actor network
+# was trained with.  This is determined by Isaac Lab's regex matching
+# of LEG_JOINT_NAMES against the URDF (left then right for each pattern).
+action:
+  scale: 0.15             # action_scale (target = action × scale + offset)
+  joints:
+    # .*_hip_pitch_joint  →  left, right
+    - left_hip_pitch_joint
+    - right_hip_pitch_joint
+    # .*_hip_roll_joint
+    - left_hip_roll_joint
+    - right_hip_roll_joint
+    # .*_hip_yaw_joint
+    - left_hip_yaw_joint
+    - right_hip_yaw_joint
+    # .*_knee_joint
+    - left_knee_joint
+    - right_knee_joint
+    # .*_ankle_pitch_joint
+    - left_ankle_pitch_joint
+    - right_ankle_pitch_joint
+    # .*_ankle_roll_joint
+    - left_ankle_roll_joint
+    - right_ankle_roll_joint
+
+# ─── PD Controller — all 31 joints ────────────────────────────────── ★
+# kp / kd / default values come from Isaac Lab's deploy.yaml and
+# config_setting.py (the ImplicitActuatorCfg).
+# Non-action joints are held at their default position by PD control.
+pd_controller:
+  # === LEG (12 joints) ===
+  left_hip_pitch_joint:     { kp: 200, kd: 8,  default: -0.15 }
+  left_hip_roll_joint:      { kp: 200, kd: 8,  default:  0.0  }
+  left_hip_yaw_joint:       { kp: 150, kd: 6,  default:  0.0  }
+  left_knee_joint:          { kp: 200, kd: 8,  default:  0.3  }
+  left_ankle_pitch_joint:   { kp:  60, kd: 5,  default: -0.15 }
+  left_ankle_roll_joint:    { kp:  60, kd: 5,  default:  0.0  }
+  right_hip_pitch_joint:    { kp: 200, kd: 8,  default: -0.15 }
+  right_hip_roll_joint:     { kp: 200, kd: 8,  default:  0.0  }
+  right_hip_yaw_joint:      { kp: 150, kd: 6,  default:  0.0  }
+  right_knee_joint:         { kp: 200, kd: 8,  default:  0.3  }
+  right_ankle_pitch_joint:  { kp:  60, kd: 5,  default: -0.15 }
+  right_ankle_roll_joint:   { kp:  60, kd: 5,  default:  0.0  }
+  # === WAIST (3 joints) ===
+  waist_yaw_joint:          { kp: 200, kd: 8,  default:  0.0  }
+  waist_pitch_joint:        { kp: 100, kd: 5,  default:  0.0  }
+  waist_roll_joint:         { kp: 100, kd: 5,  default:  0.0  }
+  # === ARMS (14 joints) ===
+  left_shoulder_pitch_joint:  { kp: 40, kd: 2, default:  0.3  }
+  left_shoulder_roll_joint:   { kp: 40, kd: 2, default:  0.2  }
+  left_shoulder_yaw_joint:    { kp: 40, kd: 2, default:  0.0  }
+  left_elbow_joint:           { kp: 40, kd: 2, default: -0.9  }
+  left_wrist_yaw_joint:       { kp: 40, kd: 2, default:  0.0  }
+  left_wrist_pitch_joint:     { kp: 40, kd: 2, default:  0.0  }
+  left_wrist_roll_joint:      { kp: 40, kd: 2, default:  0.0  }
+  right_shoulder_pitch_joint: { kp: 40, kd: 2, default:  0.3  }
+  right_shoulder_roll_joint:  { kp: 40, kd: 2, default: -0.2  }
+  right_shoulder_yaw_joint:   { kp: 40, kd: 2, default:  0.0  }
+  right_elbow_joint:          { kp: 40, kd: 2, default: -0.9  }
+  right_wrist_yaw_joint:      { kp: 40, kd: 2, default:  0.0  }
+  right_wrist_pitch_joint:    { kp: 40, kd: 2, default:  0.0  }
+  right_wrist_roll_joint:     { kp: 40, kd: 2, default:  0.0  }
+  # === HEAD (2 joints) ===
+  head_yaw_joint:             { kp: 10, kd: 1, default:  0.0  }
+  head_pitch_joint:           { kp: 10, kd: 1, default:  0.0  }
