@@ -1,0 +1,31 @@
+python scripts/rsl_rl/train.py --headless --task Zhiyuan-X2Ultra-31dof-Velocity --num_envs=10240
+耗时约4h
+
+Architecture:                x86_64
+  CPU op-mode(s):            32-bit, 64-bit
+  Address sizes:             48 bits physical, 48 bits virtual
+  Byte Order:                Little Endian
+CPU(s):                      16
+  On-line CPU(s) list:       0-15
+Vendor ID:                   AuthenticAMD
+  Model name:                AMD Ryzen 7 9700X 8-Core Processor
+    CPU family:              26
+    Model:                   68
+    Thread(s) per core:      2
+    Core(s) per socket:      8
+    Socket(s):               1
+    Stepping:                0
+    CPU max MHz:             5581.0000
+    CPU min MHz:             600.0000
+
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 570.211.01             Driver Version: 570.211.01     CUDA Version: 12.8     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 5070 Ti     Off |   00000000:01:00.0  On |                  N/A |
+|  0%   49C    P3             38W /  300W |    1656MiB /  16303MiB |      3%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
