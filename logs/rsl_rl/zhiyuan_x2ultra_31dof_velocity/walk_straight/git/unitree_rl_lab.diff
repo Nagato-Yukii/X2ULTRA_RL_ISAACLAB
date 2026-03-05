@@ -1,0 +1,242 @@
+--- git status ---
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   scripts/list_envs.py
+	modified:   scripts/rsl_rl/train.py
+	modified:   source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	source/unitree_rl_lab/unitree_rl_lab/tasks/locomotion/robots/x2ultra/
+	unitree_model/
+	unitree_ros/
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/scripts/list_envs.py b/scripts/list_envs.py
+index 5324af9..bd3037d 100644
+--- a/scripts/list_envs.py
++++ b/scripts/list_envs.py
+@@ -87,7 +87,7 @@ def main():
+     index = 0
+     # acquire all Isaac environments names
+     for task_spec in gym.registry.values():
+-        if "Unitree" in task_spec.id and "Isaac" not in task_spec.id:
++        if ("Unitree" in task_spec.id or "Zhiyuan" in task_spec.id) and "Isaac" not in task_spec.id:
+             # add details to table
+             table.add_row([index + 1, task_spec.id, task_spec.entry_point, task_spec.kwargs["env_cfg_entry_point"]])
+             # increment count
+diff --git a/scripts/rsl_rl/train.py b/scripts/rsl_rl/train.py
+index 28dae91..687049d 100644
+--- a/scripts/rsl_rl/train.py
++++ b/scripts/rsl_rl/train.py
+@@ -19,7 +19,7 @@ sys.path.pop(0)
+ 
+ tasks = []
+ for task_spec in gym.registry.values():
+-    if "Unitree" in task_spec.id and "Isaac" not in task_spec.id:
++    if ("Unitree" in task_spec.id or "Zhiyuan" in task_spec.id) and "Isaac" not in task_spec.id:
+         tasks.append(task_spec.id)
+ 
+ import argparse
+diff --git a/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py b/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
+index e78413a..402b57b 100644
+--- a/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
++++ b/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
+@@ -17,8 +17,8 @@ from isaaclab.utils import configclass
+ 
+ from unitree_rl_lab.assets.robots import unitree_actuators
+ 
+-UNITREE_MODEL_DIR = "path/to/unitree_model"  # Replace with the actual path to your unitree_model directory
+-UNITREE_ROS_DIR = "path/to/unitree_ros"  # Replace with the actual path to your unitree_ros package
++UNITREE_MODEL_DIR = "/home/ye/unitree_rl_lab/unitree_model"  # Replace with the actual path to your unitree_model directory
++UNITREE_ROS_DIR = "/home/ye/unitree_rl_lab/unitree_ros"  # Replace with the actual path to your unitree_ros package
+ 
+ 
+ @configclass
+@@ -508,6 +508,179 @@ UNITREE_G1_29DOF_CFG = UnitreeArticulationCfg(
+         "right_wrist_yaw_joint",
+     ],
+ )
++# 陈凯旋添加，智元X2Ultra
++ZHIYUAN_X2Ultra_31DOF_CFG = UnitreeArticulationCfg(
++    # 使用简化碰撞的 URDF，避免复杂 mesh 碰撞导致仿真不稳定
++    spawn=UnitreeUrdfFileCfg(
++        asset_path=f"{UNITREE_ROS_DIR}/robots/x2ultra_description/x2_ultra_simple_collision.urdf",
++    ),
++    init_state=ArticulationCfg.InitialStateCfg(
++        pos=(0.0, 0.0, 0.66),
++        joint_pos={
++            # LEG — 微曲站立姿态
++            ".*hip_pitch_joint": -0.15,
++            ".*knee_joint": 0.30,
++            ".*ankle_pitch_joint": -0.15,
++            # ARM
++            ".*shoulder_pitch_joint": 0.3,
++            ".*elbow_joint": -0.9,
++            "left_shoulder_roll_joint": 0.2,
++            "right_shoulder_roll_joint": -0.2,
++        },
++        joint_vel={".*": 0.0},
++    ),
++    actuators={
++        # 大关节：髋部 + 膝盖 + 腰部yaw
++        "legs_hip_knee": ImplicitActuatorCfg(
++            joint_names_expr=[
++                ".*_hip_pitch_.*",
++                ".*_hip_yaw_.*",
++                ".*_hip_roll_.*",
++                ".*_knee_.*",
++            ],
++            effort_limit_sim=120,
++            velocity_limit_sim=11.936,
++            stiffness={
++                ".*_hip_pitch_.*": 200.0,
++                ".*_hip_roll_.*": 200.0,
++                ".*_hip_yaw_.*": 150.0,
++                ".*_knee_.*": 200.0,
++            },
++            damping={
++                ".*_hip_pitch_.*": 8.0,
++                ".*_hip_roll_.*": 8.0,
++                ".*_hip_yaw_.*": 6.0,
++                ".*_knee_.*": 8.0,
++            },
++            armature=0.01,
++        ),
++        # 踝关节 — 平衡最关键
++        "ankles": ImplicitActuatorCfg(
++            joint_names_expr=[
++                ".*_ankle_pitch_.*",
++                ".*_ankle_roll.*",
++            ],
++            effort_limit_sim={
++                ".*_ankle_pitch_.*": 36,
++                ".*_ankle_roll.*": 24,
++            },
++            velocity_limit_sim={
++                ".*_ankle_pitch_.*": 13.088,
++                ".*_ankle_roll.*": 15.077,
++            },
++            stiffness={
++                ".*_ankle_pitch_.*": 60.0,
++                ".*_ankle_roll.*": 60.0,
++            },
++            damping={
++                ".*_ankle_pitch_.*": 5.0,
++                ".*_ankle_roll.*": 5.0,
++            },
++            armature=0.01,
++        ),
++        # 腰部
++        "waist": ImplicitActuatorCfg(
++            joint_names_expr=[
++                "waist_yaw_.*",
++                "waist_pitch_.*",
++                "waist_roll_.*",
++            ],
++            effort_limit_sim={
++                "waist_yaw_.*": 120,
++                "waist_pitch_.*": 48,
++                "waist_roll_.*": 48,
++            },
++            velocity_limit_sim=13.088,
++            stiffness={
++                "waist_yaw_.*": 200.0,
++                "waist_pitch_.*": 100.0,
++                "waist_roll_.*": 100.0,
++            },
++            damping={
++                "waist_yaw_.*": 8.0,
++                "waist_pitch_.*": 5.0,
++                "waist_roll_.*": 5.0,
++            },
++            armature=0.01,
++        ),
++        # 手臂
++        "arms": ImplicitActuatorCfg(
++            joint_names_expr=[
++                ".*_shoulder_pitch_.*",
++                ".*_shoulder_roll_.*",
++                ".*_shoulder_yaw.*",
++                ".*_elbow_.*",
++                ".*_wrist_yaw_.*",
++                ".*_wrist_pitch_.*",
++                ".*_wrist_roll_.*",
++            ],
++            effort_limit_sim={
++                ".*_shoulder_pitch_.*": 36,
++                ".*_shoulder_roll_.*": 36,
++                ".*_shoulder_yaw.*": 24,
++                ".*_elbow_.*": 24,
++                ".*_wrist_yaw_.*": 24,
++                ".*_wrist_pitch_.*": 4.8,
++                ".*_wrist_roll_.*": 4.8,
++            },
++            velocity_limit_sim=15.077,
++            stiffness=40.0,
++            damping=2.0,
++            armature=0.01,
++        ),
++        # 头部
++        "head": ImplicitActuatorCfg(
++            joint_names_expr=[
++                "head_yaw_joint",
++                "head_pitch_joint",
++            ],
++            effort_limit_sim={
++                "head_yaw_joint": 2.6,
++                "head_pitch_joint": 0.6,
++            },
++            velocity_limit_sim=6.28,
++            stiffness=10.0,
++            damping=1.0,
++            armature=0.01,
++        ),
++    },
++    #joint_sdk_names任意顺序补充
++    joint_sdk_names=[
++        "left_hip_pitch_joint",
++        "left_hip_roll_joint",
++        "left_hip_yaw_joint",
++        "left_knee_joint",
++        "left_ankle_pitch_joint",
++        "left_ankle_roll_joint",
++        "right_hip_pitch_joint",
++        "right_hip_roll_joint",
++        "right_hip_yaw_joint",
++        "right_knee_joint",
++        "right_ankle_pitch_joint",
++        "right_ankle_roll_joint",
++        "waist_yaw_joint",
++        "waist_roll_joint",
++        "waist_pitch_joint",
++        "left_shoulder_pitch_joint",
++        "left_shoulder_roll_joint",
++        "left_shoulder_yaw_joint",
++        "left_elbow_joint",
++        "left_wrist_roll_joint",
++        "left_wrist_pitch_joint",
++        "left_wrist_yaw_joint",
++        "right_shoulder_pitch_joint",
++        "right_shoulder_roll_joint",
++        "right_shoulder_yaw_joint",
++        "right_elbow_joint",
++        "right_wrist_roll_joint",
++        "right_wrist_pitch_joint",
++        "right_wrist_yaw_joint",
++        "head_yaw_joint",
++        "head_pitch_joint",
++    ],
++
++)
++
+ 
+ 
+ ARMATURE_5020 = 0.003609725

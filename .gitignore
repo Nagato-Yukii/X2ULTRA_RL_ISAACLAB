@@ -1,0 +1,8 @@
+# 忽略 Python 的缓存文件夹
+__pycache__/
+
+# 忽略 VS Code 的本地设置
+.vscode/
+
+# 其他你可能想忽略的文件，比如 Conda 环境等
+.env
