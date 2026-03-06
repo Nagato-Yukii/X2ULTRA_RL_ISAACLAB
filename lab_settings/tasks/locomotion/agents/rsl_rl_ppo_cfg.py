@@ -34,3 +34,14 @@ class BasePPORunnerCfg(RslRlOnPolicyRunnerCfg):
         desired_kl=0.01,
         max_grad_norm=1.0,
     )
+
+
+@configclass
+class StairPPORunnerCfg(BasePPORunnerCfg):
+    """楼梯任务的 PPO 配置。
+
+    盲走策略：观测维度与 velocity 任务相同，网络结构不变。
+    依靠 history_length=5 的时序信息隐式推断地形。
+    """
+
+    pass

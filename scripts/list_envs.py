@@ -57,12 +57,24 @@ def _walk_packages(
 
 
 def import_packages():
-    sys.path.insert(0, f"{pathlib.Path(__file__).parent.parent}/source/unitree_rl_lab/unitree_rl_lab/tasks/")
-    for package in ["locomotion.robots", "mimic.robots"]:
-        package = importlib.import_module(package)
-        for _ in _walk_packages(package.__path__, package.__name__ + "."):
-            pass
-    sys.path.pop(0)
+    project_root = pathlib.Path(__file__).parent.parent
+    # 优先扫描本项目 lab_settings/tasks/，其次扫描 unitree_rl_lab 源码
+    tasks_dirs = [
+        project_root / "lab_settings" / "tasks",
+        # project_root / "source" / "unitree_rl_lab" / "unitree_rl_lab" / "tasks",
+    ]
+    for tasks_dir in tasks_dirs:
+        if not tasks_dir.is_dir():
+            continue
+        sys.path.insert(0, str(tasks_dir))
+        for package_name in ["locomotion.robots", "mimic.robots"]:
+            try:
+                package = importlib.import_module(package_name)
+            except ModuleNotFoundError:
+                continue
+            for _ in _walk_packages(package.__path__, package.__name__ + "."):
+                pass
+        sys.path.pop(0)
 
 
 import_packages()

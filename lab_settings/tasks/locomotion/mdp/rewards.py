@@ -128,6 +128,35 @@ def foot_clearance_reward(
     return torch.exp(-torch.sum(reward, dim=1) / std)
 
 
+def foot_clearance_body_reward(
+    env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, target_height: float, std: float, tanh_mult: float
+) -> torch.Tensor:
+    """体坐标系版脚部抬升奖励，适用于非平坦地形（楼梯、斜坡等）。
+
+    与 foot_clearance_reward 的区别：
+    - foot_clearance_reward 使用世界坐标系绝对 Z（仅适用于平地）
+    - 本函数计算脚相对于机体的高度（体坐标系），地形无关
+
+    Args:
+        target_height: 摆动脚在体坐标系中的目标 Z 坐标。
+            站立时脚部体坐标 Z ≈ -(base_height)，例如 base=0.63m 时约 -0.63。
+            若希望摆动脚抬高 15cm，则 target_height ≈ -0.48。
+    """
+    asset: RigidObject = env.scene[asset_cfg.name]
+    # 脚部位置转换到体坐标系
+    cur_footpos = asset.data.body_pos_w[:, asset_cfg.body_ids, :] - asset.data.root_pos_w.unsqueeze(1)
+    footpos_body = torch.zeros(env.num_envs, len(asset_cfg.body_ids), 3, device=env.device)
+    for i in range(len(asset_cfg.body_ids)):
+        footpos_body[:, i, :] = quat_apply_inverse(asset.data.root_quat_w, cur_footpos[:, i, :])
+    # 体坐标系中的 Z 误差 × 水平速度门控（仅在摆动相激活）
+    foot_z_error = torch.square(footpos_body[:, :, 2] - target_height)
+    foot_vel_tanh = torch.tanh(
+        tanh_mult * torch.norm(asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :2], dim=2)
+    )
+    reward = foot_z_error * foot_vel_tanh
+    return torch.exp(-torch.sum(reward, dim=1) / std)
+
+
 def feet_too_near(
     env: ManagerBasedRLEnv, threshold: float = 0.2, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
 ) -> torch.Tensor:
