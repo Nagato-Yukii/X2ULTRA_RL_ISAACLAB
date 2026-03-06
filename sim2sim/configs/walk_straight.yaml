@@ -11,7 +11,8 @@
 #   4. command                    (initial velocity command)
 
 # ─── Paths (relative to this YAML file) ──────────────────────────────
-policy_path: "../../pretrained/walk_straight/exported/policy.pt"
+# policy_path: "../../pretrained/walk_straight/exported/policy.pt"
+policy_path: "../../pretrained/walk_straight/exported/policy_10000.pt"
 xml_path:    "../robot/X2_URDF/scene.xml"
 
 # ─── Simulation Parameters ───────────────────────────────────────────
@@ -28,10 +29,19 @@ command: [0.0, 0.0, 0.0]
 
 # ─── Observation Configuration ─────────────────────────────────────── ★
 # These MUST match the training env's PolicyCfg.
+# Each term has a registered compute function (see core/observation.py).
+# Scale is applied after computing the term value.
 observation:
-  history_length: 5       # Number of frames stacked (total obs = frame × N)
-  ang_vel_scale:  0.2     # Scale applied to angular velocity
-  dof_vel_scale:  0.05    # Scale applied to joint velocity
+  history_length: 5       # Default history length for all terms
+  terms:
+    - name: base_ang_vel
+      scale: 0.2
+    - name: projected_gravity
+    - name: velocity_commands
+    - name: joint_pos_rel
+    - name: joint_vel_rel
+      scale: 0.05
+    - name: last_action
 
 # ─── Action Configuration ─────────────────────────────────────────── ★
 # Joint names listed in **policy order** — the order the actor network

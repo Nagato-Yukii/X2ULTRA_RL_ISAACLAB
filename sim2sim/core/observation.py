@@ -1,6 +1,6 @@
 """
-Observation Builder with Per-Term History Support
-===================================================
+Observation Builder with Registry & Per-Term History
+======================================================
 Constructs the observation vector matching Isaac Lab's ``ObservationManager``
 with per-term history stacking (``CircularBuffer``).
 
@@ -9,20 +9,43 @@ Each term has its own circular buffer of ``history_length`` entries. The final
 observation is built by flattening each term's history (oldest → newest) and
 then concatenating all terms.
 
-Observation terms (matching Isaac Lab's ``PolicyCfg`` order):
+Extensibility
+-------------
+To add a new observation term for a new task:
 
-=====  =================  ====  =========================
-Index  Name               Dims  Notes
-=====  =================  ====  =========================
-  0    base_ang_vel         3   body-frame, × ang_vel_scale
-  1    projected_gravity    3   body-frame unit vector
-  2    velocity_commands    3   [vx, vy, wz]
-  3    joint_pos_rel       12   current − default
-  4    joint_vel_rel       12   × dof_vel_scale
-  5    last_action         12   raw action from prev step
-=====  =================  ====  =========================
+1. Register it with ``@register_obs_term``::
 
-With ``history_length = 5`` the layout is (for 12 action joints)::
+       @register_obs_term("height_scan", dim_hint=187)
+       def _height_scan(state: dict) -> np.ndarray:
+           return state["height_scan"].astype(np.float32)
+
+2. Add it to your YAML config::
+
+       observation:
+         history_length: 5
+         terms:
+           - name: height_scan
+             scale: 1.0
+
+3. Provide the data in the state dict inside ``deploy.py``::
+
+       state["height_scan"] = my_raycast_function(env)
+
+Built-in terms
+--------------
+======  =================  ===========  ============================
+Index   Name               Dims         Notes
+======  =================  ===========  ============================
+  0     base_ang_vel        3           body-frame (scale from YAML)
+  1     projected_gravity   3           body-frame unit vector
+  2     velocity_commands   3           [vx, vy, wz]
+  3     joint_pos_rel       num_actions current − default
+  4     joint_vel_rel       num_actions (scale from YAML)
+  5     last_action         num_actions raw action from prev step
+  6     base_lin_vel        3           world-frame linear velocity
+======  =================  ===========  ============================
+
+Example layout with ``history_length = 5`` and 12 action joints::
 
     [ang_vel_t-4(3) .. ang_vel_t(3),     # 3×5 = 15
      gravity_t-4(3) .. gravity_t(3),     # 3×5 = 15
@@ -36,70 +59,216 @@ With ``history_length = 5`` the layout is (for 12 action joints)::
 from __future__ import annotations
 
 from collections import OrderedDict, deque
+from dataclasses import dataclass
+from typing import Callable
 
 import numpy as np
 
 from .math_utils import get_projected_gravity
 
 
-class ObservationBuilder:
-    """Build policy observations with per-term history stacking.
+# ═══════════════════════════════════════════════════════════════════════════
+# Term Registry
+# ═══════════════════════════════════════════════════════════════════════════
 
-    Matches Isaac Lab's ``ObservationManager`` behaviour:
-    - Each observation term has its own ``deque`` (equivalent to
-      Isaac Lab's ``CircularBuffer``).
-    - Within each term the history is flattened oldest → newest.
-    - All term histories are concatenated in definition order.
+ObsTermFn = Callable[[dict[str, np.ndarray]], np.ndarray]
 
-    This is **different** from per-frame stacking (which would interleave
-    terms across frames).  Using the wrong layout will completely break
-    the deployed policy.
+_TERM_REGISTRY: dict[str, ObsTermFn] = {}
+
+# Dimension hints: int = fixed, "num_actions" = resolved at build time
+_TERM_DIM_HINTS: dict[str, int | str] = {}
+
+
+def register_obs_term(name: str, dim_hint: int | str | None = None):
+    """Decorator to register an observation term compute function.
+
+    The decorated function receives a *state dict* (str → np.ndarray) and
+    must return a 1-D float32 array.  The ``dim_hint`` lets the builder
+    know the output size at construction time so it can pre-allocate
+    history buffers.
 
     Args:
-        num_actions:    Number of action dimensions (= controlled joints).
-        history_length: How many timesteps of history per term (1 = no history).
-        ang_vel_scale:  Multiplier for angular velocity (matches training).
-        dof_vel_scale:  Multiplier for joint velocity   (matches training).
+        name:     Unique term name (referenced in YAML configs).
+        dim_hint: Output dimension — an ``int`` for fixed sizes (e.g. 3),
+                  or the string ``"num_actions"`` for action-dependent sizes.
+                  May also be ``None`` if the user always specifies ``dim``
+                  explicitly in the YAML.
+
+    Example::
+
+        @register_obs_term("height_scan", dim_hint=187)
+        def _height_scan(state: dict) -> np.ndarray:
+            return state["height_scan"].astype(np.float32)
     """
 
-    # Observation term names in Isaac Lab PolicyCfg order.
-    TERM_NAMES: tuple[str, ...] = (
-        "base_ang_vel",
-        "projected_gravity",
-        "velocity_commands",
-        "joint_pos_rel",
-        "joint_vel_rel",
-        "last_action",
-    )
+    def decorator(fn: ObsTermFn) -> ObsTermFn:
+        _TERM_REGISTRY[name] = fn
+        if dim_hint is not None:
+            _TERM_DIM_HINTS[name] = dim_hint
+        return fn
+
+    return decorator
+
+
+def get_registered_terms() -> list[str]:
+    """Return names of all registered observation terms."""
+    return list(_TERM_REGISTRY.keys())
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Built-in Observation Terms
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@register_obs_term("base_ang_vel", dim_hint=3)
+def _base_ang_vel(state: dict) -> np.ndarray:
+    """Base angular velocity in body frame (3,)."""
+    return state["base_ang_vel_body"].copy().astype(np.float32)
+
+
+@register_obs_term("projected_gravity", dim_hint=3)
+def _projected_gravity(state: dict) -> np.ndarray:
+    """Gravity direction in body frame, unit vector (3,)."""
+    return get_projected_gravity(state["base_quat"])
+
+
+@register_obs_term("velocity_commands", dim_hint=3)
+def _velocity_commands(state: dict) -> np.ndarray:
+    """Velocity command [vx, vy, wz] (3,)."""
+    return state["velocity_cmd"].copy().astype(np.float32)
+
+
+@register_obs_term("joint_pos_rel", dim_hint="num_actions")
+def _joint_pos_rel(state: dict) -> np.ndarray:
+    """Relative joint positions: current − default (num_actions,)."""
+    return (state["joint_pos"] - state["joint_default_pos"]).astype(np.float32)
+
+
+@register_obs_term("joint_vel_rel", dim_hint="num_actions")
+def _joint_vel_rel(state: dict) -> np.ndarray:
+    """Joint velocities (num_actions,).  Scale is applied by the builder."""
+    return state["joint_vel"].copy().astype(np.float32)
+
+
+@register_obs_term("last_action", dim_hint="num_actions")
+def _last_action(state: dict) -> np.ndarray:
+    """Previous policy action output (num_actions,)."""
+    return state["last_action"].copy().astype(np.float32)
+
+
+@register_obs_term("base_lin_vel", dim_hint=3)
+def _base_lin_vel(state: dict) -> np.ndarray:
+    """Base linear velocity in world frame (3,)."""
+    return state["base_lin_vel"].copy().astype(np.float32)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Term Configuration
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@dataclass
+class ObsTermCfg:
+    """Configuration for a single observation term.
+
+    Attributes:
+        name:           Registered term name (must appear in the registry).
+        scale:          Scalar or per-element scale applied after compute.
+        history_length: Per-term history length.  ``0`` means "use the
+                        group-level default".
+        dim:            Explicit output dimension.  Overrides ``dim_hint``
+                        from the registry — useful for custom terms.
+    """
+
+    name: str
+    scale: float | list[float] = 1.0
+    history_length: int = 0
+    dim: int | None = None
+
+
+def _resolve_dim(cfg: ObsTermCfg, num_actions: int) -> int:
+    """Determine the output dimension of an observation term."""
+    if cfg.dim is not None:
+        return cfg.dim
+    hint = _TERM_DIM_HINTS.get(cfg.name)
+    if hint is None:
+        raise ValueError(
+            f"Term '{cfg.name}' has unknown dimension.  "
+            f"Specify 'dim' in the YAML or use dim_hint in @register_obs_term.  "
+            f"Registered terms: {get_registered_terms()}"
+        )
+    return num_actions if hint == "num_actions" else int(hint)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Observation Builder
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class ObservationBuilder:
+    """Data-driven observation builder with per-term history stacking.
+
+    Reads a list of :class:`ObsTermCfg` to decide *which* observation terms
+    to include and in *which* order.  Each term is computed via its
+    registered function from the term registry, then scaled and pushed
+    into a per-term FIFO history buffer.
+
+    This design means **adding a new task with different observations
+    requires only a new YAML config** — no Python changes needed (unless
+    the task introduces an entirely new observation term, in which case a
+    single ``@register_obs_term`` decorator suffices).
+
+    Args:
+        terms:                  Ordered list of term configurations.
+        default_history_length: Fallback history length for terms that do
+                                not specify one (i.e. ``history_length=0``).
+        num_actions:            Number of action dimensions.
+    """
 
     def __init__(
         self,
+        terms: list[ObsTermCfg],
+        default_history_length: int = 1,
         num_actions: int = 12,
-        history_length: int = 1,
-        ang_vel_scale: float = 0.2,
-        dof_vel_scale: float = 0.05,
     ):
+        self.terms = terms
         self.num_actions = num_actions
-        self.history_length = history_length
-        self.ang_vel_scale = ang_vel_scale
-        self.dof_vel_scale = dof_vel_scale
 
-        # Per-term dimensions  (order must match TERM_NAMES)
-        self._term_dims: OrderedDict[str, int] = OrderedDict([
-            ("base_ang_vel",       3),
-            ("projected_gravity",  3),
-            ("velocity_commands",  3),
-            ("joint_pos_rel",      num_actions),
-            ("joint_vel_rel",      num_actions),
-            ("last_action",        num_actions),
-        ])
+        # ── Resolve dims, scales, history lengths ─────────────────────────
+        self._term_dims: OrderedDict[str, int] = OrderedDict()
+        self._term_scales: OrderedDict[str, np.ndarray | float] = OrderedDict()
+        self._term_hist_lens: OrderedDict[str, int] = OrderedDict()
 
-        # 3 + 3 + 3 + N + N + N  where N = num_actions
+        for tcfg in terms:
+            if tcfg.name not in _TERM_REGISTRY:
+                raise ValueError(
+                    f"Unknown observation term '{tcfg.name}'.  "
+                    f"Available: {get_registered_terms()}"
+                )
+            dim = _resolve_dim(tcfg, num_actions)
+            hl = tcfg.history_length if tcfg.history_length > 0 else default_history_length
+
+            self._term_dims[tcfg.name] = dim
+            self._term_hist_lens[tcfg.name] = hl
+
+            # Resolve scale (scalar or per-element array)
+            if isinstance(tcfg.scale, list):
+                s = np.array(tcfg.scale, dtype=np.float32)
+                if len(s) != dim:
+                    raise ValueError(
+                        f"Scale length {len(s)} != dim {dim} for term '{tcfg.name}'"
+                    )
+                self._term_scales[tcfg.name] = s
+            else:
+                self._term_scales[tcfg.name] = float(tcfg.scale)
+
         self.frame_size = sum(self._term_dims.values())
-        # Total obs = sum of (term_dim × history_length) for every term
-        self.obs_size = self.frame_size * history_length
+        self.obs_size = sum(
+            dim * self._term_hist_lens[name]
+            for name, dim in self._term_dims.items()
+        )
 
-        # Per-term history buffers  {name: deque of np arrays}
+        # Per-term history buffers
         self._term_histories: OrderedDict[str, deque] = OrderedDict()
         self.reset()
 
@@ -111,96 +280,68 @@ class ObservationBuilder:
         """Clear all per-term history buffers (fill with zeros)."""
         self._term_histories.clear()
         for name, dim in self._term_dims.items():
-            buf: deque[np.ndarray] = deque(maxlen=self.history_length)
-            for _ in range(self.history_length):
+            hl = self._term_hist_lens[name]
+            buf: deque[np.ndarray] = deque(maxlen=hl)
+            for _ in range(hl):
                 buf.append(np.zeros(dim, dtype=np.float32))
             self._term_histories[name] = buf
 
-    def build(
-        self,
-        base_quat: np.ndarray,
-        base_ang_vel_body: np.ndarray,
-        joint_pos: np.ndarray,
-        joint_default_pos: np.ndarray,
-        joint_vel: np.ndarray,
-        velocity_cmd: np.ndarray,
-        last_action: np.ndarray,
-    ) -> np.ndarray:
-        """Compute current-step terms, push to per-term history, return full obs.
-
-        All joint arrays must be in **policy order** (the 12 controlled
-        joints as listed in the config YAML).
+    def build(self, state: dict[str, np.ndarray]) -> np.ndarray:
+        """Compute terms from *state*, push to history, return full obs.
 
         Args:
-            base_quat:          [qw, qx, qy, qz]  MuJoCo convention.
-            base_ang_vel_body:  Angular velocity already in body frame (3,).
-            joint_pos:          Current leg-joint positions  (num_actions,).
-            joint_default_pos:  Default / rest positions     (num_actions,).
-            joint_vel:          Current leg-joint velocities  (num_actions,).
-            velocity_cmd:       Velocity command [vx, vy, wz] (3,).
-            last_action:        Previous raw action output    (num_actions,).
+            state: Dictionary mapping state keys to numpy arrays.  Must
+                   contain all keys required by the configured terms.
+                   Common keys: ``base_quat``, ``base_ang_vel_body``,
+                   ``joint_pos``, ``joint_default_pos``, ``joint_vel``,
+                   ``velocity_cmd``, ``last_action``.
 
         Returns:
-            Full observation ``(obs_size,)`` — per-term history, then terms
-            concatenated.
+            Full observation ``(obs_size,)`` — per-term history flattened
+            then concatenated across terms.
         """
-        # Compute each observation term
-        gravity = get_projected_gravity(base_quat)
+        term_values = self._compute_and_scale(state)
 
-        current_terms: OrderedDict[str, np.ndarray] = OrderedDict([
-            ("base_ang_vel",      (base_ang_vel_body * self.ang_vel_scale).astype(np.float32)),
-            ("projected_gravity", gravity),
-            ("velocity_commands", velocity_cmd.copy().astype(np.float32)),
-            ("joint_pos_rel",     (joint_pos - joint_default_pos).astype(np.float32)),
-            ("joint_vel_rel",     (joint_vel * self.dof_vel_scale).astype(np.float32)),
-            ("last_action",       last_action.copy().astype(np.float32)),
-        ])
-
-        # Push each term into its own history buffer
-        for name, value in current_terms.items():
+        for name, value in term_values.items():
             self._term_histories[name].append(value)
 
-        # Build output: for each term, flatten its history (oldest → newest),
-        # then concatenate all terms.
         parts: list[np.ndarray] = []
-        for name in self.TERM_NAMES:
-            # deque oldest at index 0, newest at index -1
-            term_flat = np.concatenate(list(self._term_histories[name]))
-            parts.append(term_flat)
+        for tcfg in self.terms:
+            parts.append(np.concatenate(list(self._term_histories[tcfg.name])))
 
         return np.concatenate(parts)
 
-    def prefill(
-        self,
-        base_quat: np.ndarray,
-        base_ang_vel_body: np.ndarray,
-        joint_pos: np.ndarray,
-        joint_default_pos: np.ndarray,
-        joint_vel: np.ndarray,
-        velocity_cmd: np.ndarray,
-    ):
-        """Fill every per-term history slot with the initial observation.
+    def prefill(self, state: dict[str, np.ndarray]):
+        """Fill every history slot with the initial observation.
 
-        Matches Isaac Lab's ``CircularBuffer`` first-push behaviour: on the
-        very first ``append``, *all* history slots are filled with the same
-        data so the policy sees a consistent (not zero-padded) buffer from
-        the start.
+        Matches Isaac Lab's ``CircularBuffer`` first-push behaviour.
         """
-        last_action = np.zeros(self.num_actions, dtype=np.float32)
-        gravity = get_projected_gravity(base_quat)
-
-        init_terms: OrderedDict[str, np.ndarray] = OrderedDict([
-            ("base_ang_vel",      (base_ang_vel_body * self.ang_vel_scale).astype(np.float32)),
-            ("projected_gravity", gravity),
-            ("velocity_commands", velocity_cmd.copy().astype(np.float32)),
-            ("joint_pos_rel",     (joint_pos - joint_default_pos).astype(np.float32)),
-            ("joint_vel_rel",     (joint_vel * self.dof_vel_scale).astype(np.float32)),
-            ("last_action",       last_action),
-        ])
+        term_values = self._compute_and_scale(state)
 
         self._term_histories.clear()
-        for name, dim in self._term_dims.items():
-            buf: deque[np.ndarray] = deque(maxlen=self.history_length)
-            for _ in range(self.history_length):
-                buf.append(init_terms[name].copy())
-            self._term_histories[name] = buf
+        for tcfg in self.terms:
+            hl = self._term_hist_lens[tcfg.name]
+            buf: deque[np.ndarray] = deque(maxlen=hl)
+            for _ in range(hl):
+                buf.append(term_values[tcfg.name].copy())
+            self._term_histories[tcfg.name] = buf
+
+    # ------------------------------------------------------------------ #
+    # Internal
+    # ------------------------------------------------------------------ #
+
+    def _compute_and_scale(
+        self, state: dict[str, np.ndarray]
+    ) -> OrderedDict[str, np.ndarray]:
+        """Call each term's registered function and apply its scale."""
+        result: OrderedDict[str, np.ndarray] = OrderedDict()
+        for tcfg in self.terms:
+            fn = _TERM_REGISTRY[tcfg.name]
+            value = fn(state)
+            scale = self._term_scales[tcfg.name]
+            if isinstance(scale, np.ndarray):
+                value = value * scale
+            elif scale != 1.0:
+                value = value * scale
+            result[tcfg.name] = value.astype(np.float32)
+        return result

@@ -54,7 +54,7 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core.mujoco_env import JointConfig, MujocoEnv
-from core.observation import ObservationBuilder
+from core.observation import ObservationBuilder, ObsTermCfg
 from core.policy_runner import PolicyRunner
 
 
@@ -90,6 +90,56 @@ def build_joint_configs(pd_cfg: dict) -> list[JointConfig]:
             )
         )
     return configs
+
+
+def parse_obs_terms(obs_cfg: dict) -> list[ObsTermCfg]:
+    """Parse the observation section of a YAML config into ObsTermCfg list.
+
+    Supports two formats:
+
+    **New format** (recommended, explicit term list)::
+
+        observation:
+          history_length: 5
+          terms:
+            - name: base_ang_vel
+              scale: 0.2
+            - name: projected_gravity
+            - name: joint_vel_rel
+              scale: 0.05
+
+    **Legacy format** (backward-compatible, implicit default terms)::
+
+        observation:
+          history_length: 5
+          ang_vel_scale: 0.2
+          dof_vel_scale: 0.05
+    """
+    if "terms" in obs_cfg:
+        # ── New explicit format ───────────────────────────────────────
+        terms: list[ObsTermCfg] = []
+        for entry in obs_cfg["terms"]:
+            terms.append(
+                ObsTermCfg(
+                    name=entry["name"],
+                    scale=entry.get("scale", 1.0),
+                    history_length=entry.get("history_length", 0),
+                    dim=entry.get("dim"),
+                )
+            )
+        return terms
+    else:
+        # ── Legacy format → convert to ObsTermCfg list ────────────────
+        ang_vel_scale = obs_cfg.get("ang_vel_scale", 0.2)
+        dof_vel_scale = obs_cfg.get("dof_vel_scale", 0.05)
+        return [
+            ObsTermCfg("base_ang_vel",      scale=ang_vel_scale),
+            ObsTermCfg("projected_gravity"),
+            ObsTermCfg("velocity_commands"),
+            ObsTermCfg("joint_pos_rel"),
+            ObsTermCfg("joint_vel_rel",      scale=dof_vel_scale),
+            ObsTermCfg("last_action"),
+        ]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -144,6 +194,7 @@ def main():
     action_joints  = act_cfg["joints"]
     num_actions    = len(action_joints)
     history_length = obs_cfg["history_length"]
+    obs_terms      = parse_obs_terms(obs_cfg)
 
     init_base_pos = tuple(cfg.get("init_base_pos", [0.0, 0.0, 0.66]))
 
@@ -157,8 +208,7 @@ def main():
     print(f"  Action Scale : {action_scale}")
     print(f"  Num Actions  : {num_actions}")
     print(f"  History Len  : {history_length}")
-    obs_per_frame = 9 + 3 * num_actions
-    print(f"  Obs Dims     : {obs_per_frame} × {history_length} = {obs_per_frame * history_length}")
+    print(f"  Obs Terms    : {[t.name for t in obs_terms]}")
     print(f"  Velocity Cmd : vx={cmd[0]:.2f}  vy={cmd[1]:.2f}  wz={cmd[2]:.2f}")
     print(f"  Duration     : {duration:.0f} s")
     print("=" * 65)
@@ -185,10 +235,9 @@ def main():
     # ── Create observation builder ────────────────────────────────────────
     print(f"\n[3/3] Initialising observation builder …")
     obs_builder = ObservationBuilder(
+        terms=obs_terms,
+        default_history_length=history_length,
         num_actions=num_actions,
-        history_length=history_length,
-        ang_vel_scale=obs_cfg["ang_vel_scale"],
-        dof_vel_scale=obs_cfg["dof_vel_scale"],
     )
     print(f"  Frame size : {obs_builder.frame_size}")
     print(f"  Total obs  : {obs_builder.obs_size}")
@@ -208,15 +257,22 @@ def main():
         vel = np.array([all_dq[idx] for idx in action_ctrl_ids], dtype=np.float32)
         return pos, vel
 
+    def build_state(j_pos, j_vel, act):
+        """Assemble the full state dict from current env readings."""
+        return {
+            "base_quat":        env.get_base_quat(),
+            "base_ang_vel_body": env.get_base_ang_vel(),
+            "base_lin_vel":     env.get_base_lin_vel(),
+            "base_pos":         env.get_base_pos(),
+            "joint_pos":        j_pos,
+            "joint_default_pos": action_defaults,
+            "joint_vel":        j_vel,
+            "velocity_cmd":     cmd,
+            "last_action":      act,
+        }
+
     joint_pos, joint_vel = read_policy_joints()
-    obs_builder.prefill(
-        base_quat=env.get_base_quat(),
-        base_ang_vel_body=env.get_base_ang_vel(),
-        joint_pos=joint_pos,
-        joint_default_pos=action_defaults,
-        joint_vel=joint_vel,
-        velocity_cmd=cmd,
-    )
+    obs_builder.prefill(build_state(joint_pos, joint_vel, action))
 
     # ── Keyboard callback ─────────────────────────────────────────────────
     should_reset = False
@@ -262,14 +318,7 @@ def main():
                 action[:] = 0.0
                 obs_builder.reset()
                 joint_pos, joint_vel = read_policy_joints()
-                obs_builder.prefill(
-                    base_quat=env.get_base_quat(),
-                    base_ang_vel_body=env.get_base_ang_vel(),
-                    joint_pos=joint_pos,
-                    joint_default_pos=action_defaults,
-                    joint_vel=joint_vel,
-                    velocity_cmd=cmd,
-                )
+                obs_builder.prefill(build_state(joint_pos, joint_vel, action))
                 counter = 0
                 should_reset = False
                 print("  [RESET] Robot reset to initial state.")
@@ -282,19 +331,10 @@ def main():
             if counter % decimation == 0:
                 # Read state
                 joint_pos, joint_vel = read_policy_joints()
-                base_quat = env.get_base_quat()
-                base_ang_vel = env.get_base_ang_vel()
 
-                # Build observation (with history)
-                obs = obs_builder.build(
-                    base_quat=base_quat,
-                    base_ang_vel_body=base_ang_vel,
-                    joint_pos=joint_pos,
-                    joint_default_pos=action_defaults,
-                    joint_vel=joint_vel,
-                    velocity_cmd=cmd,
-                    last_action=action,
-                )
+                # Build observation (with per-term history)
+                state = build_state(joint_pos, joint_vel, action)
+                obs = obs_builder.build(state)
 
                 # Policy forward pass
                 action = policy.infer(obs)

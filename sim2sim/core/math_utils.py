@@ -33,7 +33,7 @@ def quat_rotate_inverse(quat: np.ndarray, vec: np.ndarray) -> np.ndarray:
 
     在N坐标系下G_N被表示为[0,0,-g]^T,计算在载体坐标系下的重力表示为G_B = R^b_n * G_N = [r02 * -g , r12 * -g , r22 * -g]
     (这里的 r00~r22 的值是由四元数公式直接得出的，等价于欧拉角算出来的三角函数结果)
-    
+
     Computes v_body = R^T @ v_world, where R is the rotation matrix
     constructed from the quaternion.
 
@@ -46,7 +46,7 @@ def quat_rotate_inverse(quat: np.ndarray, vec: np.ndarray) -> np.ndarray:
     """
     qw, qx, qy, qz = quat[0], quat[1], quat[2], quat[3]
 
-    # R^T columns (rows of R)
+    # R^T columns (rows of R) # 保留以后直接用
     r00 = 1 - 2 * (qy * qy + qz * qz)
     r01 = 2 * (qx * qy + qw * qz)
     r02 = 2 * (qx * qz - qw * qy)

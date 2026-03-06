@@ -1,0 +1,143 @@
+# ╔═══════════════════════════════════════════════════════════════════════╗
+# ║  新任务 Sim2Sim 配置模板                                              ║
+# ║                                                                       ║
+# ║  使用方法:                                                            ║
+# ║    1. 复制本文件 → configs/your_task_name.yaml                       ║
+# ║    2. 修改下面标 ★ 的部分                                             ║
+# ║    3. 运行: python deploy.py --config configs/your_task_name.yaml    ║
+# ╚═══════════════════════════════════════════════════════════════════════╝
+#
+# 如果你的新任务使用了训练中不同的观测 term:
+#   - 内置 term 直接在 terms 列表中引用即可（改顺序/增删都可以）
+#   - 自定义 term 需要在 core/observation.py 中用 @register_obs_term 注册
+#   - 详见本文件底部的 "自定义观测 term 指南"
+
+# ─── Paths ★ ─────────────────────────────────────────────────────────
+policy_path: "../../pretrained/your_task/exported/policy.pt"
+xml_path:    "../robot/X2_URDF/scene.xml"
+
+# ─── Simulation Parameters ★ ─────────────────────────────────────────
+sim_dt:     0.002
+decimation: 10
+duration:   60.0
+
+# ─── Initial base position ───────────────────────────────────────────
+init_base_pos: [0.0, 0.0, 0.66]
+
+# ─── Velocity Command ★ ──────────────────────────────────────────────
+command: [0.5, 0.0, 0.0]
+
+# ─── Observation Configuration ★ ─────────────────────────────────────
+# 每个 term 对应 Isaac Lab 训练 PolicyCfg 里的一个观测项。
+# 内置可用的 term:
+#   base_ang_vel       (3,)  机体角速度
+#   projected_gravity  (3,)  机体坐标系下重力方向
+#   velocity_commands  (3,)  速度指令 [vx, vy, wz]
+#   joint_pos_rel      (N,)  关节位置 − 默认位置
+#   joint_vel_rel      (N,)  关节速度
+#   last_action        (N,)  上一步动作
+#   base_lin_vel       (3,)  世界坐标系线速度
+#
+# 每个 term 可选配置:
+#   scale:          标量或列表，计算后乘以此值（默认 1.0）
+#   history_length: 该 term 独立的历史长度（0 = 使用全局默认值）
+#   dim:            显式指定维度（用于自定义 term）
+#
+observation:
+  history_length: 3        # 全局默认历史长度
+  terms:
+    - name: base_ang_vel
+      scale: 0.25
+    - name: base_lin_vel   # ← 新增：线速度观测
+      scale: 1.0
+    - name: projected_gravity
+    - name: velocity_commands
+    - name: joint_pos_rel
+    - name: joint_vel_rel
+      scale: 0.05
+    - name: last_action
+    # - name: height_scan  # ← 如需高度扫描，取消注释并注册 term
+    #   dim: 187            # ← 必须指定维度（非内置 term）
+    #   scale: 1.0
+
+# ─── Action Configuration ★ ──────────────────────────────────────────
+action:
+  scale: 0.15
+  joints:
+    - left_hip_pitch_joint
+    - right_hip_pitch_joint
+    - left_hip_roll_joint
+    - right_hip_roll_joint
+    - left_hip_yaw_joint
+    - right_hip_yaw_joint
+    - left_knee_joint
+    - right_knee_joint
+    - left_ankle_pitch_joint
+    - right_ankle_pitch_joint
+    - left_ankle_roll_joint
+    - right_ankle_roll_joint
+
+# ─── PD Controller ★ ─────────────────────────────────────────────────
+# 从 Isaac Lab 训练的 deploy.yaml 中拷贝 kp/kd/default 值
+pd_controller:
+  left_hip_pitch_joint:     { kp: 200, kd: 8,  default: -0.15 }
+  left_hip_roll_joint:      { kp: 200, kd: 8,  default:  0.0  }
+  left_hip_yaw_joint:       { kp: 150, kd: 6,  default:  0.0  }
+  left_knee_joint:          { kp: 200, kd: 8,  default:  0.3  }
+  left_ankle_pitch_joint:   { kp:  60, kd: 5,  default: -0.15 }
+  left_ankle_roll_joint:    { kp:  60, kd: 5,  default:  0.0  }
+  right_hip_pitch_joint:    { kp: 200, kd: 8,  default: -0.15 }
+  right_hip_roll_joint:     { kp: 200, kd: 8,  default:  0.0  }
+  right_hip_yaw_joint:      { kp: 150, kd: 6,  default:  0.0  }
+  right_knee_joint:         { kp: 200, kd: 8,  default:  0.3  }
+  right_ankle_pitch_joint:  { kp:  60, kd: 5,  default: -0.15 }
+  right_ankle_roll_joint:   { kp:  60, kd: 5,  default:  0.0  }
+  waist_yaw_joint:          { kp: 200, kd: 8,  default:  0.0  }
+  waist_pitch_joint:        { kp: 100, kd: 5,  default:  0.0  }
+  waist_roll_joint:         { kp: 100, kd: 5,  default:  0.0  }
+  left_shoulder_pitch_joint:  { kp: 40, kd: 2, default:  0.3  }
+  left_shoulder_roll_joint:   { kp: 40, kd: 2, default:  0.2  }
+  left_shoulder_yaw_joint:    { kp: 40, kd: 2, default:  0.0  }
+  left_elbow_joint:           { kp: 40, kd: 2, default: -0.9  }
+  left_wrist_yaw_joint:       { kp: 40, kd: 2, default:  0.0  }
+  left_wrist_pitch_joint:     { kp: 40, kd: 2, default:  0.0  }
+  left_wrist_roll_joint:      { kp: 40, kd: 2, default:  0.0  }
+  right_shoulder_pitch_joint: { kp: 40, kd: 2, default:  0.3  }
+  right_shoulder_roll_joint:  { kp: 40, kd: 2, default: -0.2  }
+  right_shoulder_yaw_joint:   { kp: 40, kd: 2, default:  0.0  }
+  right_elbow_joint:          { kp: 40, kd: 2, default: -0.9  }
+  right_wrist_yaw_joint:      { kp: 40, kd: 2, default:  0.0  }
+  right_wrist_pitch_joint:    { kp: 40, kd: 2, default:  0.0  }
+  right_wrist_roll_joint:     { kp: 40, kd: 2, default:  0.0  }
+  head_yaw_joint:             { kp: 10, kd: 1, default:  0.0  }
+  head_pitch_joint:           { kp: 10, kd: 1, default:  0.0  }
+
+# ═══════════════════════════════════════════════════════════════════════
+# 自定义观测 term 指南
+# ═══════════════════════════════════════════════════════════════════════
+#
+# 如果你的训练环境使用了内置列表中没有的观测项（比如 height_scan、
+# contact_forces 等），需要两步操作:
+#
+# 步骤 1: 在 core/observation.py 中注册计算函数
+# ─────────────────────────────────────────────
+#   from core.observation import register_obs_term
+#
+#   @register_obs_term("height_scan", dim_hint=187)
+#   def _height_scan(state: dict) -> np.ndarray:
+#       """从 state dict 中取出高度扫描数据。"""
+#       return state["height_scan"].astype(np.float32)
+#
+# 步骤 2: 在 deploy.py 的 build_state() 中提供数据
+# ────────────────────────────────────────────────
+#   def build_state(j_pos, j_vel, act):
+#       state = { ... }
+#       state["height_scan"] = compute_height_scan(env)  # 你的实现
+#       return state
+#
+# 步骤 3: 在 YAML 的 terms 中引用
+# ──────────────────────────────
+#   terms:
+#     - name: height_scan
+#       dim: 187          # 必须指定，因为不是内置 term
+#       scale: 1.0
