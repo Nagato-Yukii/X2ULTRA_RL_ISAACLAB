@@ -1,0 +1,23 @@
+name: x2ultra_rl_env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+    # ── 核心数值计算 ──────────────────────────────────────────────────────────
+    - torch>=2.0
+    - numpy>=1.24
+    # ── RL 训练框架（isaaclab 相关包需通过 isaaclab 脚本单独安装，见 setup.sh）───
+    # isaaclab, isaaclab_tasks, isaaclab_rl 需参考官方文档安装
+    # rsl-rl-lib 通过 isaaclab 安装脚本处理
+    # ── sim2sim / MuJoCo 部署 ───────────────────────────────────────────────
+    - mujoco>=3.0
+    - onnxruntime>=1.17        # 加载 .onnx 策略模型（CPU 推理）
+    # ── 常用工具 ─────────────────────────────────────────────────────────────
+    - pyyaml>=6.0              # 读写 YAML 配置文件
+    - packaging>=23.0          # 版本号比较（train.py 中检查 rsl-rl 版本）
+    - argcomplete>=3.0         # 命令行 Tab 补全
+    - prettytable>=3.9         # list_envs.py 打印环境表格
+    - scipy>=1.11              # 科学计算（通用依赖）

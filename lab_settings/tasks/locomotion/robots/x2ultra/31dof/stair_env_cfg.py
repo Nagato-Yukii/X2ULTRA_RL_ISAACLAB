@@ -27,7 +27,7 @@ from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
-from unitree_rl_lab.assets.robots.unitree import ZHIYUAN_X2Ultra_31DOF_CFG as ROBOT_CFG
+from assets.robots.config_setting import ZHIYUAN_X2Ultra_31DOF_CFG as ROBOT_CFG
 from .... import mdp
 
 # ── 沿用 velocity 任务的共享配置 ──────────────────────────

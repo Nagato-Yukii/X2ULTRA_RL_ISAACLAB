@@ -60,8 +60,8 @@ from isaaclab.utils.dict import print_dict
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper, export_policy_as_jit, export_policy_as_onnx
 from isaaclab_tasks.utils import get_checkpoint_path
 
-import unitree_rl_lab.tasks  # noqa: F401
-from unitree_rl_lab.utils.parser_cfg import parse_env_cfg
+# 本项目自有任务已由 list_envs.import_packages() 注册，无需再导入 unitree_rl_lab.tasks
+from utils.parser_cfg import parse_env_cfg
 
 
 def main():

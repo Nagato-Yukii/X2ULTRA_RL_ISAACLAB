@@ -9,6 +9,7 @@ Reference: https://github.com/unitreerobotics/unitree_ros
 """
 
 import os
+import pathlib
 
 import isaaclab.sim as sim_utils
 from isaaclab.actuators import IdealPDActuatorCfg, ImplicitActuatorCfg
@@ -17,8 +18,10 @@ from isaaclab.utils import configclass
 
 from . import actuators as unitree_actuators
 
-UNITREE_MODEL_DIR = "/home/suzumiyaharuhi/X2Ultra_RL_IsaacLab/robot_model"#"path/to/unitree_model"  # Replace with the actual path to your unitree_model directory
-UNITREE_ROS_DIR = "/home/suzumiyaharuhi/X2Ultra_RL_IsaacLab/robot_ros"#"path/to/unitree_ros"  # Replace with the actual path to your unitree_ros package
+# 仓库根目录：lab_settings/assets/robots/ 向上三级
+_REPO_ROOT = pathlib.Path(__file__).parent.parent.parent.parent
+UNITREE_MODEL_DIR = str(_REPO_ROOT / "robot_model")  # 存放 URDF/USD 模型文件
+UNITREE_ROS_DIR = str(_REPO_ROOT / "robot_ros")       # 存放 ROS 描述包
 
 @configclass
 class X2UltraArticulationCfg(ArticulationCfg):
@@ -70,17 +73,18 @@ class X2UltraUrdfFileCfg(sim_utils.UrdfFileCfg):
         """Replace the asset with a temporary copy to avoid modifying the original asset.
 
         When need to change the collisions, place the modified URDF file separately in this repository,
-        and let `meshes_dir` be provided by `unitree_ros`.
+        and let `meshes_dir` be provided by `robot_ros`.
         This function will auto construct a complete `robot_description` file structure in the `/tmp` directory.
         Note: The mesh references inside the URDF should be in the same directory level as the URDF itself.
         """
-        tmp_meshes_dir = "/tmp/IsaacLab/unitree_rl_lab/meshes"
+        tmp_dir = "/tmp/IsaacLab/x2ultra_rl"
+        tmp_meshes_dir = f"{tmp_dir}/meshes"
         if os.path.exists(tmp_meshes_dir):
             os.remove(tmp_meshes_dir)
-        os.makedirs("/tmp/IsaacLab/unitree_rl_lab", exist_ok=True)
+        os.makedirs(tmp_dir, exist_ok=True)
         os.symlink(meshes_dir, tmp_meshes_dir)
 
-        self.asset_path = "/tmp/IsaacLab/unitree_rl_lab/robot.urdf"
+        self.asset_path = f"{tmp_dir}/robot.urdf"
         if os.path.exists(self.asset_path):
             os.remove(self.asset_path)
         os.symlink(urdf_path, self.asset_path)

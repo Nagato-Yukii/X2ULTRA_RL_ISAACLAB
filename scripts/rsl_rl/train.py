@@ -108,8 +108,8 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
-import unitree_rl_lab.tasks  # noqa: F401
-from unitree_rl_lab.utils.export_deploy_cfg import export_deploy_cfg
+# 本项目自有任务已由 list_envs.import_packages() 注册，无需再导入 unitree_rl_lab.tasks
+from utils.export_deploy_cfg import export_deploy_cfg
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
