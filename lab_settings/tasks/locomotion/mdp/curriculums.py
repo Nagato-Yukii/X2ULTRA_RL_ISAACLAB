@@ -4,8 +4,50 @@ import torch
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
+from isaaclab.managers import SceneEntityCfg
+
+if TYPE_CHECKING: # 只在IDE检查类型，不影响运行
     from isaaclab.envs import ManagerBasedRLEnv
+
+# 课程设置
+
+def terrain_levels_stair(
+    env: ManagerBasedRLEnv,
+    env_ids: Sequence[int],
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    min_level: int = 1,
+    distance_threshold: float = 4.0,
+) -> torch.Tensor:
+
+    """
+    楼梯地形课程：
+    与 terrain_levels_vel 的区别：
+    1. 升级阈值更低（2m 而非 terrain_size/2=4m），适配低速走楼梯
+    2. 有最低级别下限（min_level=1），保证始终有楼梯暴露，避免卡在纯平地
+    3. 降级条件更宽松：只在走得特别少（<0.5m）时才降级
+    """
+    asset = env.scene[asset_cfg.name]
+    terrain = env.scene.terrain
+
+    # 计算本 episode 内变化的欧氏距离 |x - x0| + |y - y0| # 只取前两维,+ |z - z0|这段不取
+    distance = torch.norm(
+        asset.data.root_pos_w[env_ids, :2] - env.scene.env_origins[env_ids, :2], dim=1
+    )
+
+    move_up = distance > distance_threshold
+    move_down = (distance < 0.5) & (~move_up)
+
+    terrain.update_env_origins(env_ids, move_up, move_down)
+
+    # 强制最低级别为 min_level，保证始终有楼梯暴露
+    below_min = terrain.terrain_levels < min_level
+    if below_min.any():
+        terrain.terrain_levels[below_min] = min_level
+        terrain.env_origins[below_min] = terrain.terrain_origins[
+            terrain.terrain_levels[below_min], terrain.terrain_types[below_min]
+        ]
+
+    return torch.mean(terrain.terrain_levels.float())
 
 
 def lin_vel_cmd_levels(
@@ -13,6 +55,7 @@ def lin_vel_cmd_levels(
     env_ids: Sequence[int],
     reward_term_name: str = "track_lin_vel_xy",
 ) -> torch.Tensor:
+
     command_term = env.command_manager.get_term("base_velocity")
     ranges = command_term.cfg.ranges
     limit_ranges = command_term.cfg.limit_ranges

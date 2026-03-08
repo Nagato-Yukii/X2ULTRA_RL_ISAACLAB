@@ -23,8 +23,10 @@ def energy(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("r
     """Penalize the energy used by the robot's joints."""
     asset: Articulation = env.scene[asset_cfg.name]
 
-    qvel = asset.data.joint_vel[:, asset_cfg.joint_ids]
-    qfrc = asset.data.applied_torque[:, asset_cfg.joint_ids]
+    qvel = asset.data.joint_vel[:, asset_cfg.joint_ids]         # 当前关节速度 velocity
+    qfrc = asset.data.applied_torque[:, asset_cfg.joint_ids]    # 当前施加的扭矩 torque = 力 叉乘 力矩
+
+    # 功率 P = velocity * torque,所有关节的功率绝对值加起来
     return torch.sum(torch.abs(qvel) * torch.abs(qfrc), dim=-1)
 
 
@@ -80,7 +82,7 @@ def joint_position_penalty(
 Feet rewards.
 """
 
-
+# 踢台阶，xy受力比z大很多，说明踢到墙壁或脚面的角度不对
 def feet_stumble(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
     # extract the used quantities (to enable type-hinting)
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
@@ -90,7 +92,7 @@ def feet_stumble(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Te
     reward = torch.any(forces_xy > 4 * forces_z, dim=1).float()
     return reward
 
-
+# 脚步抬高奖励
 def feet_height_body(
     env: ManagerBasedRLEnv,
     command_name: str,
@@ -100,15 +102,22 @@ def feet_height_body(
 ) -> torch.Tensor:
     """Reward the swinging feet for clearing a specified height off the ground"""
     asset: RigidObject = env.scene[asset_cfg.name]
+
+    # 将脚的位置从世界坐标系转换到机体坐标系
     cur_footpos_translated = asset.data.body_pos_w[:, asset_cfg.body_ids, :] - asset.data.root_pos_w[:, :].unsqueeze(1)
     footpos_in_body_frame = torch.zeros(env.num_envs, len(asset_cfg.body_ids), 3, device=env.device)
+    # 将脚的速度从世界坐标系转换到机体坐标系
     cur_footvel_translated = asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :] - asset.data.root_lin_vel_w[
         :, :
     ].unsqueeze(1)
     footvel_in_body_frame = torch.zeros(env.num_envs, len(asset_cfg.body_ids), 3, device=env.device)
+    
+    # quat_apply_inverse *****
+    # 将脚的位置和速度从“世界坐标系”完全转换到“机器人机体坐标系”中。
     for i in range(len(asset_cfg.body_ids)):
         footpos_in_body_frame[:, i, :] = quat_apply_inverse(asset.data.root_quat_w, cur_footpos_translated[:, i, :])
         footvel_in_body_frame[:, i, :] = quat_apply_inverse(asset.data.root_quat_w, cur_footvel_translated[:, i, :])
+
     foot_z_target_error = torch.square(footpos_in_body_frame[:, :, 2] - target_height).view(env.num_envs, -1)
     foot_velocity_tanh = torch.tanh(tanh_mult * torch.norm(footvel_in_body_frame[:, :, :2], dim=2))
     reward = torch.sum(foot_z_target_error * foot_velocity_tanh, dim=1)

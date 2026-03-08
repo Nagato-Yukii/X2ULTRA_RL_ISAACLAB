@@ -8,7 +8,7 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, R
 
 
 @configclass
-class BasePPORunnerCfg(RslRlOnPolicyRunnerCfg):
+class BasePPORunnerCfg(RslRlOnPolicyRunnerCfg): #基类直接用rslrl的ppo配置
     num_steps_per_env = 24 # Horizon
     max_iterations = 50000 # total_steps ≈ num_steps_per_env * max_iterations
     save_interval = 100
@@ -45,3 +45,5 @@ class StairPPORunnerCfg(BasePPORunnerCfg):
     """
 
     pass
+
+# 假如有新的任务，继承BasePPORunnerCfg，然后修改需要修改的参数即可

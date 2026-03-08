@@ -63,10 +63,16 @@ def import_packages():
         project_root / "lab_settings" / "tasks",
         # project_root / "source" / "unitree_rl_lab" / "unitree_rl_lab" / "tasks",
     ]
+    # 将 lab_settings/ 加入 sys.path，使 assets.xxx 可被导入
+    lab_settings_dir = project_root / "lab_settings"
+    if lab_settings_dir.is_dir() and str(lab_settings_dir) not in sys.path:
+        sys.path.insert(0, str(lab_settings_dir))
+
     for tasks_dir in tasks_dirs:
         if not tasks_dir.is_dir():
             continue
-        sys.path.insert(0, str(tasks_dir))
+        if str(tasks_dir) not in sys.path:
+            sys.path.insert(0, str(tasks_dir))
         for package_name in ["locomotion.robots", "mimic.robots"]:
             try:
                 package = importlib.import_module(package_name)
@@ -74,7 +80,6 @@ def import_packages():
                 continue
             for _ in _walk_packages(package.__path__, package.__name__ + "."):
                 pass
-        sys.path.pop(0)
 
 
 import_packages()

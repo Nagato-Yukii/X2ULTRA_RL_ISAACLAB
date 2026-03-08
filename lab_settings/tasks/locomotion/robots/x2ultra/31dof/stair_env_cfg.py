@@ -34,9 +34,34 @@ from .... import mdp
 from .velocity_env_cfg import (
     LEG_JOINT_NAMES,
     EventCfg,       # 物理材质随机化 / 质量随机化 / 推力扰动 / 关节重置
-    CommandsCfg,     # 速度指令 + 指令课程
     ActionsCfg,      # 12-DoF 下肢位置控制
 )
+
+
+# ── 楼梯任务专用指令配置（更宽的初始速度范围） ──
+@configclass
+class StairCommandsCfg:
+    """楼梯任务指令配置。
+
+    与 velocity 任务的区别：初始速度范围更宽（±0.3 而非 ±0.1），
+    确保机器人在 20s episode 内能走到 2m 的升级阈值。
+    velocity 任务初始 ±0.1 × 20s = 最远 2m < 4m 升级阈值 → 死锁。
+    """
+
+    base_velocity = mdp.UniformLevelVelocityCommandCfg(
+        asset_name="robot",
+        resampling_time_range=(10.0, 10.0),
+        rel_standing_envs=0.02,
+        rel_heading_envs=1.0,
+        heading_command=False,
+        debug_vis=True,
+        ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
+            lin_vel_x=(-0.3, 0.5), lin_vel_y=(-0.2, 0.2), ang_vel_z=(-0.1, 0.1)
+        ),
+        limit_ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
+            lin_vel_x=(-0.5, 1.0), lin_vel_y=(-0.3, 0.3), ang_vel_z=(-0.2, 0.2)
+        ),
+    )
 
 # ===========================================================================
 #                              地形配置
@@ -90,7 +115,7 @@ class StairSceneCfg(InteractiveSceneCfg):
         prim_path="/World/ground",
         terrain_type="generator",
         terrain_generator=STAIRS_TERRAIN_CFG,
-        max_init_terrain_level=5,   # 训练开始时最高分配到第 5 级（共 10 级）
+        max_init_terrain_level=0,   # TRICK A: 强制初始难度为最平缓（0），避免直接加载平地模型时碰撞台阶爆炸
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
@@ -219,13 +244,14 @@ class StairRewardsCfg:
     alive = RewTerm(func=mdp.is_alive, weight=0.5)
 
     # ── base penalties ──
-    base_linear_velocity = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
-    base_angular_velocity = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
-    joint_vel = RewTerm(func=mdp.joint_vel_l2, weight=-0.001)
-    joint_acc = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
-    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.05)
-    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=-5.0)
-    energy = RewTerm(func=mdp.energy, weight=-2e-5)
+    # TRICK B: Reward Clipping. 防止因物理引擎穿模导致的奖励爆炸 (-1e10)，强制兜底。
+    base_linear_velocity = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0, clip=(-20.0, 0.0))
+    base_angular_velocity = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05, clip=(-20.0, 0.0))
+    joint_vel = RewTerm(func=mdp.joint_vel_l2, weight=-0.001, clip=(-20.0, 0.0))
+    joint_acc = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7, clip=(-20.0, 0.0))
+    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.05, clip=(-20.0, 0.0))
+    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=-5.0, clip=(-20.0, 0.0))
+    energy = RewTerm(func=mdp.energy, weight=-2e-5, clip=(-20.0, 0.0))
 
     joint_deviation_legs = RewTerm(
         func=mdp.joint_deviation_l1,
@@ -242,7 +268,7 @@ class StairRewardsCfg:
         func=mdp.feet_gait,
         weight=0.5,
         params={
-            "period": 0.8,
+            "period": 1.0,  # 修正：楼梯需要更慢的步态周期（原 0.8s → 1.0s）
             "offset": [0.0, 0.5],
             "threshold": 0.55,
             "command_name": "base_velocity",
@@ -263,7 +289,7 @@ class StairRewardsCfg:
         params={
             "std": 0.05,
             "tanh_mult": 2.0,
-            "target_height": -0.48,  # 体坐标系：站立脚 Z ≈ -0.63，抬高 15cm → -0.48
+            "target_height": -0.43,  # 修正：抬高 20cm（原 15cm → 20cm），适应 18cm 台阶
             "asset_cfg": SceneEntityCfg("robot", body_names=".*ankle_roll.*"),
         },
     )
@@ -290,6 +316,13 @@ class StairTerminationsCfg:
     # 绝对高度 < 0.15m 时终止（楼梯上的正常高度远高于此）
     base_height = DoneTerm(func=mdp.root_height_below_minimum, params={"minimum_height": 0.15})
     bad_orientation = DoneTerm(func=mdp.bad_orientation, params={"limit_angle": 1.2})
+    
+    # TRICK C: Fatal Contact Termination. 防止由于极端碰撞引发物理引擎的异常脉冲力
+    # 只要是不应该是支撑脚的部位（比如膝盖、大腿、基座）碰到了环境，立即终止
+    illegal_contact = DoneTerm(
+        func=mdp.illegal_contact,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["(?!.*ankle.*).*"]), "threshold": 1.0},
+    )
 
 
 # ===========================================================================
@@ -299,12 +332,14 @@ class StairTerminationsCfg:
 class StairCurriculumCfg:
     """
     课程学习:
-    - terrain_levels: 根据行走距离在地形难度级别间升降
-      （走得远 → 升级到更高楼梯；走不远 → 降级到更矮楼梯）
+    - terrain_levels_stair: 楼梯专用，升级阈值 3m（修正：原 2m → 3m），最低 level=1
     - lin_vel_cmd_levels: 根据速度跟踪奖励逐步扩大指令速度范围
     """
 
-    terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
+    terrain_levels = CurrTerm(
+        func=mdp.terrain_levels_stair,
+        params={"min_level": 1, "distance_threshold": 3.0},  # 修正：提高升级阈值
+    )
     lin_vel_cmd_levels = CurrTerm(func=mdp.lin_vel_cmd_levels)
 
 
@@ -320,7 +355,7 @@ class StairEnvCfg(ManagerBasedRLEnvCfg):
     # Basic
     observations: StairObservationsCfg = StairObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
-    commands: CommandsCfg = CommandsCfg()
+    commands: StairCommandsCfg = StairCommandsCfg()
     # MDP
     rewards: StairRewardsCfg = StairRewardsCfg()
     terminations: StairTerminationsCfg = StairTerminationsCfg()

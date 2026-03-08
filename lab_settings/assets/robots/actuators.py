@@ -8,6 +8,7 @@ from isaaclab.utils import configclass
 from isaaclab.utils.types import ArticulationActions
 
 # 电枢参数为可选插件
+# 该电机建模不被使用
 
 class X2UltraActuator(DelayedPDActuator):
     """

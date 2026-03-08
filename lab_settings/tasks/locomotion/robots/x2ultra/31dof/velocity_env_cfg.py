@@ -18,8 +18,8 @@ from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
-from unitree_rl_lab.assets.robots.unitree import ZHIYUAN_X2Ultra_31DOF_CFG as ROBOT_CFG
-from unitree_rl_lab.tasks.locomotion import mdp
+from assets.robots.config_setting import ZHIYUAN_X2Ultra_31DOF_CFG as ROBOT_CFG
+from locomotion import mdp
 
 # 只控制下肢 12 个关节
 LEG_JOINT_NAMES = [
@@ -50,6 +50,7 @@ COBBLESTONE_ROAD_CFG = terrain_gen.TerrainGeneratorCfg(
 @configclass
 class RobotSceneCfg(InteractiveSceneCfg):
     """Configuration for the terrain scene with a legged robot."""
+    # 配置物理场景（地形、机器人模型、光照、传感器）
 
     # ground terrain
     terrain = TerrainImporterCfg(
@@ -115,7 +116,6 @@ class EventCfg:
         func=mdp.randomize_rigid_body_mass,
         mode="startup",
         params={
-            # NOTE: 请根据 X2Ultra URDF 中实际的 torso link 名称修改
             "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
             "mass_distribution_params": (-1.0, 3.0),
             "operation": "add",

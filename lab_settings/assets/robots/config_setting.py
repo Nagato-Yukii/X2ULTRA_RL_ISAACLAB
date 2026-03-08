@@ -15,7 +15,7 @@ from isaaclab.actuators import IdealPDActuatorCfg, ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
 from isaaclab.utils import configclass
 
-from X2Ultra_RL_IsaacLab.assets.robots import unitree_actuators
+from . import actuators as unitree_actuators
 
 UNITREE_MODEL_DIR = "/home/suzumiyaharuhi/X2Ultra_RL_IsaacLab/robot_model"#"path/to/unitree_model"  # Replace with the actual path to your unitree_model directory
 UNITREE_ROS_DIR = "/home/suzumiyaharuhi/X2Ultra_RL_IsaacLab/robot_ros"#"path/to/unitree_ros"  # Replace with the actual path to your unitree_ros package
@@ -86,9 +86,9 @@ class X2UltraUrdfFileCfg(sim_utils.UrdfFileCfg):
         os.symlink(urdf_path, self.asset_path)
 
 """ Configuration for robots."""
-ZHIYUAN_X2Ultra_31DOF_CFG = UnitreeArticulationCfg(
+ZHIYUAN_X2Ultra_31DOF_CFG = X2UltraArticulationCfg(
     # 使用简化碰撞的 URDF，避免复杂 mesh 碰撞导致仿真不稳定
-    spawn=UnitreeUrdfFileCfg(
+    spawn=X2UltraUrdfFileCfg(
         asset_path=f"{UNITREE_ROS_DIR}/robots/x2ultra_description/x2_ultra_simple_collision.urdf",
     ),
     init_state=ArticulationCfg.InitialStateCfg(
