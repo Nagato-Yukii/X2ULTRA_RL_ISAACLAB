@@ -1,0 +1,216 @@
+--- git status ---
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   environment.yml
+	modified:   readme.md
+	modified:   setup.sh
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	scripts/rsl_rl/logs/
+	scripts/rsl_rl/outputs/
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/environment.yml b/environment.yml
+index a2d7db6..e3ef35f 100644
+--- a/environment.yml
++++ b/environment.yml
+@@ -3,21 +3,31 @@ channels:
+   - conda-forge
+   - defaults
+ dependencies:
+-  - python=3.10
++  - python=3.11
+   - pip
+   - pip:
++    # ── 配置源 (Config) ──────────────────────────────────────────────────────
++    # 注意：在 YAML 中，pip 的参数需要作为列表项写在包名之前
++    - --extra-index-url https://pypi.nvidia.com
++    - --extra-index-url https://download.pytorch.org/whl/cu128
++
++    # ── 核心模拟器与计算框架 (Core) ───────────────────────────────────────────
++    # Isaac Sim (指定版本)
++    - isaacsim[all,extscache]==5.1.0
++    # PyTorch (指定版本与 CUDA 版本，pip 会优先匹配这里的 ==2.7.0)
++    - torch==2.7.0
++    - torchvision==0.22.0
++
+     # ── 核心数值计算 ──────────────────────────────────────────────────────────
+-    - torch>=2.0
+     - numpy>=1.24
+-    # ── RL 训练框架（isaaclab 相关包需通过 isaaclab 脚本单独安装，见 setup.sh）───
+-    # isaaclab, isaaclab_tasks, isaaclab_rl 需参考官方文档安装
+-    # rsl-rl-lib 通过 isaaclab 安装脚本处理
+-    # ── sim2sim / MuJoCo 部署 ───────────────────────────────────────────────
++    
++    # ── Sim2Sim / 部署 ──────────────────────────────────────────────────────
+     - mujoco>=3.0
+-    - onnxruntime>=1.17        # 加载 .onnx 策略模型（CPU 推理）
++    - onnxruntime>=1.17
++
+     # ── 常用工具 ─────────────────────────────────────────────────────────────
+-    - pyyaml>=6.0              # 读写 YAML 配置文件
+-    - packaging>=23.0          # 版本号比较（train.py 中检查 rsl-rl 版本）
+-    - argcomplete>=3.0         # 命令行 Tab 补全
+-    - prettytable>=3.9         # list_envs.py 打印环境表格
+-    - scipy>=1.11              # 科学计算（通用依赖）
++    - pyyaml>=6.0
++    - packaging>=23.0
++    - argcomplete>=3.0
++    - prettytable>=3.9
++    - scipy>=1.11
+\ No newline at end of file
+diff --git a/readme.md b/readme.md
+index efed2f8..ef645c8 100644
+--- a/readme.md
++++ b/readme.md
+@@ -37,16 +37,11 @@
+ 
+ ## ⚙️ 前置依赖
+ 
+-> [!IMPORTANT]
+-> Isaac Lab 需要 **NVIDIA GPU + CUDA 11.8+** 环境，且必须单独安装。
+-> 请先完成以下依赖安装，再执行快速开始脚本。
+-
+ ### 必须提前安装
+ 
+ | 依赖 | 推荐版本 | 官方文档 |
+ |------|---------|---------|
+ | CUDA Toolkit | ≥ 11.8 | [NVIDIA 官网](https://developer.nvidia.com/cuda-downloads) |
+-| Isaac Sim | 4.x | [安装指南](https://docs.omniverse.nvidia.com/isaacsim/latest/installation/install_workstation.html) |
+ | Isaac Lab | 最新版 | [Isaac Lab 安装](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html) |
+ | Conda / Miniconda | 任意版本 | [Conda 官网](https://docs.conda.io/en/latest/miniconda.html) |
+ 
+@@ -56,18 +51,22 @@
+ 
+ ```bash
+ # 第一步：克隆仓库
+-git clone <your-repo-url> X2Ultra_RL_IsaacLab
++git clone <https://github.com/Nagato-Yukii/X2ULTRA_RL_ISAACLAB.git> X2Ultra_RL_IsaacLab
+ cd X2Ultra_RL_IsaacLab
+ 
+-# 第二步：运行安装脚本（自动创建 Conda 环境 + 注册 Python 路径）
++# 第二步：运行安装脚本（自动创建 Conda 环境 + 注册 Python 路径 + 安装 isaacsim）,此步耗时较久
+ bash setup.sh
+ 
+-# 第三步：激活环境
++# 第三步：激活环境并安装isaaclab
+ conda activate x2ultra_rl_env
++git clone git@github.com:isaac-sim/IsaacLab.git
++sudo apt install cmake build-essential
++cd IsaacLab
++./isaaclab.sh --install
+ 
+ # 第四步：开始训练（需要 GPU + Isaac Lab 环境）
+ cd scripts/rsl_rl
+-python train.py --task Zhiyuan-X2Ultra-31dof-Velocity-CPG
++python train.py --task Zhiyuan-X2Ultra-31dof-Velocity-CPG --num_envs=100
+ ```
+ 
+ > [!NOTE]
+diff --git a/setup.sh b/setup.sh
+index dabc9fa..63fa6d2 100644
+--- a/setup.sh
++++ b/setup.sh
+@@ -15,30 +15,12 @@ echo "  X2Ultra RL IsaacLab — 安装脚本"
+ echo "  仓库根目录: ${REPO_ROOT}"
+ echo "============================================================"
+ 
+-# ────────────────────────────────────────────────────────────────
+-# Step 1: 检查 Isaac Lab 是否已安装
+-# ────────────────────────────────────────────────────────────────
+-echo ""
+-echo "[Step 1/4] 检查 Isaac Lab 依赖..."
+-if ! python -c "import isaaclab" 2>/dev/null; then
+-    echo "⚠️  警告: 未检测到 isaaclab 包。"
+-    echo ""
+-    echo "  Isaac Lab 需要单独安装，请参考官方文档："
+-    echo "  https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html"
+-    echo ""
+-    echo "  典型安装步骤（以 pip 安装的 Isaac Lab 为例）："
+-    echo "    ./isaaclab.sh -p -m pip install -e ."
+-    echo ""
+-    echo "  如果 Isaac Lab 尚未安装，后续步骤可能会失败。"
+-    echo "  继续安装其余依赖... (Ctrl+C 可中断)"
+-    sleep 3
+-fi
+ 
+ # ────────────────────────────────────────────────────────────────
+-# Step 2: 创建或更新 Conda 环境
++# Step 1: 创建或更新 Conda 环境（含isaacsim）
+ # ────────────────────────────────────────────────────────────────
+ echo ""
+-echo "[Step 2/4] 创建 Conda 环境: ${ENV_NAME}..."
++echo "[Step 1/4] 创建 Conda 环境: ${ENV_NAME}..."
+ 
+ if conda env list | grep -q "^${ENV_NAME} "; then
+     echo "  ✔ 环境 '${ENV_NAME}' 已存在，跳过创建。"
+@@ -49,10 +31,10 @@ else
+ fi
+ 
+ # ────────────────────────────────────────────────────────────────
+-# Step 3: 将 lab_settings 注册为可导入包（通过 .pth 文件）
++# Step 2: 将 lab_settings 注册为可导入包（通过 .pth 文件）
+ # ────────────────────────────────────────────────────────────────
+ echo ""
+-echo "[Step 3/4] 将 lab_settings/ 添加到 Python 路径..."
++echo "[Step 2/4] 将 lab_settings/ 添加到 Python 路径..."
+ 
+ # 获取 conda 环境的 site-packages 目录
+ SITE_PKGS=$(conda run -n "${ENV_NAME}" python -c "import site; print(site.getsitepackages()[0])" 2>/dev/null || true)
+@@ -69,10 +51,10 @@ else
+ fi
+ 
+ # ────────────────────────────────────────────────────────────────
+-# Step 4: 安装 rsl-rl-lib（若未安装）
++# Step 3: 安装 rsl-rl-lib（若未安装）
+ # ────────────────────────────────────────────────────────────────
+ echo ""
+-echo "[Step 4/4] 检查 rsl-rl-lib..."
++echo "[Step 3/4] 检查 rsl-rl-lib..."
+ 
+ if conda run -n "${ENV_NAME}" python -c "import rsl_rl" 2>/dev/null; then
+     INSTALLED_VER=$(conda run -n "${ENV_NAME}" python -c "import importlib.metadata; print(importlib.metadata.version('rsl-rl-lib'))" 2>/dev/null || echo "未知")
+@@ -83,12 +65,34 @@ else
+     echo "  ✔ rsl-rl-lib 安装完成。"
+ fi
+ 
++
++# ────────────────────────────────────────────────────────────────
++# Step 4: 检查 Isaac Lab 是否已安装
++# ────────────────────────────────────────────────────────────────
++echo ""
++echo "[Step 4/4] 检查 Isaac Lab 依赖..."
++if ! python -c "import isaaclab" 2>/dev/null; then
++    echo "⚠️  警告: 未检测到 isaaclab 包。"
++    echo ""
++    echo "  Isaac Lab 需要单独安装，请参考官方文档："
++    echo "  https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html"
++    echo ""
++    echo "  典型安装步骤（以 pip 安装的 Isaac Lab 为例）："
++    echo "    ./isaaclab.sh -p -m pip install -e ."
++    echo "  或者运行readme.md第三步."
++    echo ""
++    echo "  如果 Isaac Lab 尚未安装，后续步骤可能会失败。"
++    echo "  继续安装其余依赖... (Ctrl+C 可中断)"
++    sleep 3
++fi
++
+ # ────────────────────────────────────────────────────────────────
+ # 完成
+ # ────────────────────────────────────────────────────────────────
+ echo ""
+ echo "============================================================"
+-echo "  ✅ 安装完成！"
++echo "  如果前四步都安装完成最开始，我混合小说漫画想象了一个女孩，她比我大，我为她构筑了一个世界观，很多很多的衣服，发型，但唯独不知道五官该什么样，她一直在我前面，背对着我引路一样。
++现在我已经比她大了很多很多，那个世界也早就停止完善，唯独五官，我一直不知道该是什么样，她也不知什么时候到了我背后，看着我走远……"
+ echo ""
+ echo "  激活环境后即可开始训练："
+ echo "    conda activate ${ENV_NAME}"

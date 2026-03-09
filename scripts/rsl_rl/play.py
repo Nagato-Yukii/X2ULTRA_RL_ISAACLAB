@@ -8,9 +8,14 @@
 """Launch Isaac Sim Simulator first."""
 
 import argparse
+import pathlib
+import sys
 from importlib.metadata import version
 
 from isaaclab.app import AppLauncher
+
+sys.path.insert(0, f"{pathlib.Path(__file__).parent.parent}")
+from list_envs import import_packages  # noqa: F401
 
 # local imports
 import cli_args  # isort: skip
@@ -77,8 +82,9 @@ def main():
     agent_cfg: RslRlOnPolicyRunnerCfg = cli_args.parse_rsl_rl_cfg(args_cli.task, args_cli)
 
     # specify directory for logging experiments
-    log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
-    log_root_path = os.path.abspath(log_root_path)
+    # resolve relative to the project root (two levels up from this script)
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    log_root_path = os.path.join(project_root, "logs", "rsl_rl", agent_cfg.experiment_name)
     print(f"[INFO] Loading experiment from directory: {log_root_path}")
     if args_cli.use_pretrained_checkpoint:
         try:
