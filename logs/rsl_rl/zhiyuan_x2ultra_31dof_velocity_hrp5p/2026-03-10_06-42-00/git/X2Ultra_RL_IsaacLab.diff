@@ -1,0 +1,216 @@
+--- git status ---
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   lab_settings/tasks/locomotion/agents/rsl_rl_ppo_cfg.py
+	modified:   lab_settings/tasks/locomotion/mdp/actions/__init__.py
+	modified:   lab_settings/tasks/locomotion/mdp/observations.py
+	modified:   lab_settings/tasks/locomotion/robots/x2ultra/31dof/__init__.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	lab_settings/tasks/locomotion/mdp/actions/hrp5p_clock_action.py
+	lab_settings/tasks/locomotion/robots/x2ultra/31dof/velocity_HRP-5P.py
+	logs/rsl_rl/zhiyuan_x2ultra_31dof_velocity_cpg/2026-03-09_03-29-00/exported/
+	logs/rsl_rl/zhiyuan_x2ultra_31dof_velocity_hrp5p/
+	outputs/2026-03-10/
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/lab_settings/tasks/locomotion/agents/rsl_rl_ppo_cfg.py b/lab_settings/tasks/locomotion/agents/rsl_rl_ppo_cfg.py
+index a45469c..a98e7f5 100644
+--- a/lab_settings/tasks/locomotion/agents/rsl_rl_ppo_cfg.py
++++ b/lab_settings/tasks/locomotion/agents/rsl_rl_ppo_cfg.py
+@@ -46,4 +46,43 @@ class StairPPORunnerCfg(BasePPORunnerCfg):
+ 
+     pass
+ 
++
++@configclass
++class HRP5PPPORunnerCfg(BasePPORunnerCfg):
++    """HRP-5P 动态时钟速度任务的 PPO 配置。
++
++    与基线的区别:
++        - 网络层规模略微扩大以适应 35×5=175 维输入
++        - num_steps_per_env=24 保持不变 (24步×25ms = 0.6s rollout)
++        - 其余超参数与基线一致
++    """
++
++    num_steps_per_env = 24      # rollout horizon: 24 × 25ms = 600ms
++    max_iterations = 50000
++    save_interval = 100
++    experiment_name = ""        # 由训练脚本填充为任务名称
++    empirical_normalization = False
++
++    policy = RslRlPpoActorCriticCfg(
++        init_noise_std=1.0,
++        actor_hidden_dims=[512, 256, 128],
++        critic_hidden_dims=[512, 256, 128],
++        activation="elu",
++    )
++    algorithm = RslRlPpoAlgorithmCfg(
++        value_loss_coef=1.0,
++        use_clipped_value_loss=True,
++        clip_param=0.2,
++        entropy_coef=0.01,
++        num_learning_epochs=5,
++        num_mini_batches=4,
++        learning_rate=1.0e-3,
++        schedule="adaptive",
++        gamma=0.99,
++        lam=0.95,
++        desired_kl=0.01,
++        max_grad_norm=1.0,
++    )
++
++
+ # 假如有新的任务，继承BasePPORunnerCfg，然后修改需要修改的参数即可
+diff --git a/lab_settings/tasks/locomotion/mdp/actions/__init__.py b/lab_settings/tasks/locomotion/mdp/actions/__init__.py
+index 3df4d91..626c167 100644
+--- a/lab_settings/tasks/locomotion/mdp/actions/__init__.py
++++ b/lab_settings/tasks/locomotion/mdp/actions/__init__.py
+@@ -1 +1,2 @@
+ from .cpg_action import CPGJointPositionAction, CPGJointPositionActionCfg  # noqa: F401
++from .hrp5p_clock_action import ClockJointPositionAction, ClockJointPositionActionCfg  # noqa: F401
+diff --git a/lab_settings/tasks/locomotion/mdp/observations.py b/lab_settings/tasks/locomotion/mdp/observations.py
+index b1df0d4..79f6084 100644
+--- a/lab_settings/tasks/locomotion/mdp/observations.py
++++ b/lab_settings/tasks/locomotion/mdp/observations.py
+@@ -17,3 +17,113 @@ def gait_phase(env: ManagerBasedRLEnv, period: float) -> torch.Tensor:
+     phase[:, 0] = torch.sin(global_phase * torch.pi * 2.0)
+     phase[:, 1] = torch.cos(global_phase * torch.pi * 2.0)
+     return phase
++
++
++# ==============================================================================
++# HRP-5P 专用观测函数
++# ==============================================================================
++
++def root_roll_pitch(env: ManagerBasedRLEnv) -> torch.Tensor:
++    """从投影重力向量中提取躯干 Roll 和 Pitch 角。
++
++    忽略 Yaw 角以保证航向不变性。投影重力 g_b = R^T @ g_w，
++    其中 g_w = [0, 0, -1]（归一化）。
++
++    Roll  ≈ atan2(g_b_y, -g_b_z)  (绕 X 轴倾斜)
++    Pitch ≈ atan2(-g_b_x, -g_b_z) (绕 Y 轴倾斜)
++
++    Returns:
++        Tensor [num_envs, 2]: [roll, pitch]  (单位: rad)
++    """
++    # projected_gravity_b: [num_envs, 3], 已归一化的重力在机体系的投影
++    g_b = env.scene["robot"].data.projected_gravity_b  # (gx, gy, gz)
++
++    roll = torch.atan2(g_b[:, 1], -g_b[:, 2])   # 绕 X 轴
++    pitch = torch.atan2(-g_b[:, 0], -g_b[:, 2]) # 绕 Y 轴
++    return torch.stack([roll, pitch], dim=-1)
++
++
++def motion_mode_onehot(env: ManagerBasedRLEnv, command_name: str = "base_velocity") -> torch.Tensor:
++    """将速度指令映射为 3 类 One-Hot 运动模式编码。
++
++    模式判断逻辑（基于 base_velocity 指令幅值）:
++        Forward  [1, 0, 0]: abs(lin_vel_x) > lin_threshold
++        Inplace  [0, 1, 0]: NOT Forward  AND  abs(ang_vel_z) > ang_threshold
++        Standing [0, 0, 1]: 其余（所有速度指令接近零）
++
++    Args:
++        command_name: 速度指令的名称，默认 "base_velocity"。
++
++    Returns:
++        Tensor [num_envs, 3]: one-hot 编码 [Forward, Inplace, Standing]
++    """
++    cmd = env.command_manager.get_command(command_name)  # [num_envs, 3]: (vx, vy, wz)
++
++    lin_vel_x = cmd[:, 0]
++    ang_vel_z = cmd[:, 2]
++
++    LIN_THRESHOLD = 0.1   # m/s，超过则认为是前进模式
++    ANG_THRESHOLD = 0.05  # rad/s，超过则认为是原地踏步模式
++
++    is_forward = torch.abs(lin_vel_x) > LIN_THRESHOLD
++    is_inplace = (~is_forward) & (torch.abs(ang_vel_z) > ANG_THRESHOLD)
++    is_standing = ~(is_forward | is_inplace)
++
++    # [num_envs, 3]: [Forward, Inplace, Standing]
++    onehot = torch.stack([is_forward.float(), is_inplace.float(), is_standing.float()], dim=-1)
++    return onehot
++
++
++def mode_reference(env: ManagerBasedRLEnv, command_name: str = "base_velocity") -> torch.Tensor:
++    """返回与运动模式对应的标量参考值。
++
++    - Forward 模式: 前向目标线速度 lin_vel_x
++    - Inplace 模式: 目标转向角速度 ang_vel_z
++    - Standing 模式: 0.0
++
++    Returns:
++        Tensor [num_envs, 1]: 标量参考值
++    """
++    cmd = env.command_manager.get_command(command_name)  # [num_envs, 3]
++
++    lin_vel_x = cmd[:, 0]
++    ang_vel_z = cmd[:, 2]
++
++    LIN_THRESHOLD = 0.1
++    ANG_THRESHOLD = 0.05
++
++    is_forward = torch.abs(lin_vel_x) > LIN_THRESHOLD
++    is_inplace = (~is_forward) & (torch.abs(ang_vel_z) > ANG_THRESHOLD)
++
++    # Forward → 使用 lin_vel_x；Inplace → 使用 ang_vel_z；Standing → 0
++    ref = torch.where(is_forward, lin_vel_x, torch.where(is_inplace, ang_vel_z, torch.zeros_like(lin_vel_x)))
++    return ref.unsqueeze(-1)  # [num_envs, 1]
++
++
++def hrp5p_clock_phase(env: ManagerBasedRLEnv) -> torch.Tensor:
++    """读取时钟 Action 中的当前相位 phi，返回 sin/cos 特征。
++
++    时钟相位 phi ∈ [0, L)，L=80 对应 2s 步态周期 @40Hz。
++    该观测为步态奖励 (feet_gait) 提供节律感知信号。
++
++    Returns:
++        Tensor [num_envs, 2]: [sin(2π·phi/L), cos(2π·phi/L)]
++    """
++    # 从 action_manager 中找到 ClockJointPositionAction 并读取 phi
++    # action_manager.terms 是一个 OrderedDict[str, ActionTerm]
++    clock_action = None
++    for term in env.action_manager._terms.values():
++        # 动态类型检查，避免硬依赖类名
++        if hasattr(term, "phi") and hasattr(term, "_L"):
++            clock_action = term
++            break
++
++    if clock_action is None:
++        # 回退：返回全零（不中断训练，仅作安全保障）
++        return torch.zeros(env.num_envs, 2, device=env.device)
++
++    phi = clock_action.phi              # [num_envs]
++    L = float(clock_action._L)         # 80.0
++
++    angle = 2.0 * torch.pi * phi / L
++    return torch.stack([torch.sin(angle), torch.cos(angle)], dim=-1)  # [num_envs, 2]
+diff --git a/lab_settings/tasks/locomotion/robots/x2ultra/31dof/__init__.py b/lab_settings/tasks/locomotion/robots/x2ultra/31dof/__init__.py
+index becb7f6..b76d059 100644
+--- a/lab_settings/tasks/locomotion/robots/x2ultra/31dof/__init__.py
++++ b/lab_settings/tasks/locomotion/robots/x2ultra/31dof/__init__.py
+@@ -47,3 +47,14 @@ gym.register(
+         "rsl_rl_cfg_entry_point": _PPO_CFG,
+     },
+ )
++
++gym.register(
++    id="Zhiyuan-X2Ultra-31dof-Velocity-HRP5P",
++    entry_point="isaaclab.envs:ManagerBasedRLEnv",
++    disable_env_checker=True,
++    kwargs={
++        "env_cfg_entry_point": f"{__name__}.velocity_HRP-5P:HRP5PEnvCfg",
++        "play_env_cfg_entry_point": f"{__name__}.velocity_HRP-5P:HRP5PPlayEnvCfg",
++        "rsl_rl_cfg_entry_point": "locomotion.agents.rsl_rl_ppo_cfg:HRP5PPPORunnerCfg",
++    },
++)
