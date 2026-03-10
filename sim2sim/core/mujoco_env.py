@@ -115,6 +115,26 @@ class MujocoEnv:
             indices.append(self._joint_name_to_ctrl[name])
         return indices
 
+    def get_joint_qpos_indices(self, joint_names: list[str]) -> list[int]:
+        """Return the ``qpos`` indices corresponding to *joint_names*."""
+        indices: list[int] = []
+        for name in joint_names:
+            jnt_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, name)
+            if jnt_id == -1:
+                raise KeyError(f"Joint '{name}' not found in MuJoCo model.")
+            indices.append(self.model.jnt_qposadr[jnt_id])
+        return indices
+
+    def get_joint_qvel_indices(self, joint_names: list[str]) -> list[int]:
+        """Return the ``qvel`` (dof) indices corresponding to *joint_names*."""
+        indices: list[int] = []
+        for name in joint_names:
+            jnt_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, name)
+            if jnt_id == -1:
+                raise KeyError(f"Joint '{name}' not found in MuJoCo model.")
+            indices.append(self.model.jnt_dofadr[jnt_id])
+        return indices
+
     def get_qpos(self) -> np.ndarray:
         """Joint positions for all actuators (``nu``-dim, actuator order)."""
         return self.data.qpos[self._ctrl_to_qpos].copy()
@@ -154,6 +174,16 @@ class MujocoEnv:
         """Set target positions for specific actuators (by ctrl index)."""
         for i, idx in enumerate(ctrl_indices):
             self.target_pos[idx] = targets[i]
+
+    def set_target_positions(self, ctrl_indices: list[int], target_positions: np.ndarray | list[float]):
+        """Set target positions for the internal PD controller.
+        
+        注意：必须更新 self.target_pos 而不能直接赋值给 self.data.ctrl。
+        因为目前模型全使用的是 <motor> (力矩控制) 驱动器，
+        这里的期望是在底层的 step_pd 中通过 PD 公式转化为力矩后，再写入 self.data.ctrl。
+        """
+        for i, idx in enumerate(ctrl_indices):
+            self.target_pos[idx] = target_positions[i]
 
     def reset_targets(self):
         """Reset all targets to their default positions."""

@@ -1,0 +1,3 @@
+asset_path: /home/suzumiyaharuhi/X2Ultra_RL_IsaacLab/robot_ros/robots/x2ultra_description/x2_ultra_simple_collision.urdf
+decimation: 10
+sim_dt: 0.0025
