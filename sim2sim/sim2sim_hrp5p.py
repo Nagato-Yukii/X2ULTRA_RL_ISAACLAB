@@ -753,6 +753,11 @@ def main():
                 delta_phi_clipped = float(np.clip(action_delta_phi, DELTA_PHI_MIN, DELTA_PHI_MAX))
                 phi = (phi + delta_phi_clipped + 1.0) % CLOCK_L
 
+                # --- 强制重置逻辑: 若处于 Standing 模式 (1), 则时钟强制归零 ---
+                # motion_mode: [Forward, Inplace, Standing] one-hot
+                if motion_mode[2] > 0.5:
+                    phi = 0.0
+
                 # (b) 计算各 term 当前值并分别压入 per-term 历史缓冲区
                 j_pos, j_vel = read_leg_joints()  # 重新读取执行动作后的状态
                 quat         = env.get_base_quat()

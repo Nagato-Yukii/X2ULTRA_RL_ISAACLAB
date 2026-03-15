@@ -113,6 +113,16 @@ class ClockJointPositionAction(JointAction):
         # 更新时钟相位:  phi_{t+1} = (phi_t + clip(a_delta_phi, -5, 5) + 1) % L
         self._phi = (self._phi + a_delta_phi_clipped + 1.0) % self._L
 
+        # --- 强制重置逻辑: 若处于 Standing 模式 (速度指令极小)，则时钟强制归零 ---
+        # 复用 observations.py 中的阈值逻辑
+        # cmd shape: [num_envs, 3] -> (vx, vy, wz)
+        cmd = self._env.command_manager.get_command("base_velocity")
+        is_forward = torch.abs(cmd[:, 0]) > 0.1
+        is_inplace = (~is_forward) & (torch.abs(cmd[:, 2]) > 0.05)
+        is_standing = ~(is_forward | is_inplace)
+
+        self._phi[is_standing] = 0.0
+
         # 计算目标关节位置: q_des = residual * scale + q_nominal
         self._processed_actions = a_residual * self._scale + self._offset
 
