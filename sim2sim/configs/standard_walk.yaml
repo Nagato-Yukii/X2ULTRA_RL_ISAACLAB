@@ -1,0 +1,98 @@
+# ╔═══════════════════════════════════════════════════════════════════════╗
+# ║  X2Ultra Standard Walk — Sim2Sim Configuration                      ║
+# ║  12-DOF leg control, updated PD gains & default posture             ║
+# ╚═══════════════════════════════════════════════════════════════════════╝
+#
+# Action joints  : 12  (legs only, policy unchanged)
+# Obs per frame  : 3+3+3+12+12+12 = 45
+# Total obs      : 45 × history_length(5) = 225
+# Control freq   : 50 Hz  (sim_dt=0.002s × decimation=10)
+
+# ─── Paths (relative to this YAML file) ──────────────────────────────
+policy_path: "../../pretrained/standard_walk/exported/policy.pt"
+xml_path:    "../robot/X2_URDF/scene.xml"
+
+# ─── Simulation Parameters ───────────────────────────────────────────
+sim_dt:     0.002
+decimation: 10
+duration:   60.0
+
+# ─── Initial base position ───────────────────────────────────────────
+init_base_pos: [0.0, 0.0, 0.66]
+
+# ─── Velocity Command  [lin_vel_x, lin_vel_y, ang_vel_z] ─────────────
+command: [0.0, 0.0, 0.0]
+
+# ─── Observation Configuration ───────────────────────────────────────
+observation:
+  history_length: 5
+  terms:
+    - name: base_ang_vel
+      scale: 0.2
+    - name: projected_gravity
+    - name: velocity_commands
+    - name: joint_pos_rel
+    - name: joint_vel_rel
+      scale: 0.05
+    - name: last_action
+
+# ─── Action Configuration ────────────────────────────────────────────
+action:
+  scale: 0.15
+  joints:
+    - left_hip_pitch_joint
+    - right_hip_pitch_joint
+    - left_hip_roll_joint
+    - right_hip_roll_joint
+    - left_hip_yaw_joint
+    - right_hip_yaw_joint
+    - left_knee_joint
+    - right_knee_joint
+    - left_ankle_pitch_joint
+    - right_ankle_pitch_joint
+    - left_ankle_roll_joint
+    - right_ankle_roll_joint
+
+# ─── PD Controller — all 31 joints ───────────────────────────────────
+pd_controller:
+
+  # === LEG (12 action joints) ===
+  left_hip_pitch_joint:     { kp: 120, kd: 5,   default: -0.2480 }
+  left_hip_roll_joint:      { kp: 120, kd: 5,   default:  0.0000 }
+  left_hip_yaw_joint:       { kp: 120, kd: 5,   default:  0.0000 }
+  left_knee_joint:          { kp: 150, kd: 5,   default:  0.5303 }
+  left_ankle_pitch_joint:   { kp:  40, kd: 3,   default: -0.2823 }
+  left_ankle_roll_joint:    { kp:  30, kd: 2,   default:  0.0000 }
+  right_hip_pitch_joint:    { kp: 120, kd: 5,   default: -0.2480 }
+  right_hip_roll_joint:     { kp: 120, kd: 5,   default:  0.0000 }
+  right_hip_yaw_joint:      { kp: 120, kd: 5,   default:  0.0000 }
+  right_knee_joint:         { kp: 150, kd: 5,   default:  0.5303 }
+  right_ankle_pitch_joint:  { kp:  40, kd: 3,   default: -0.2823 }
+  right_ankle_roll_joint:   { kp:  30, kd: 2,   default:  0.0000 }
+
+  # === WAIST (非 action，维持零位) ===
+  waist_yaw_joint:          { kp: 160, kd: 5,   default:  0.0000 }
+  waist_pitch_joint:        { kp:  80, kd: 5,   default:  0.0000 }
+  waist_roll_joint:         { kp:  80, kd: 5,   default:  0.0000 }
+
+  # === ARMS — shoulder pitch (非 action) ===
+  left_shoulder_pitch_joint:  { kp: 80, kd: 4,  default:  0.0000 }
+  right_shoulder_pitch_joint: { kp: 80, kd: 4,  default:  0.0000 }
+
+  # === ARMS — 其余关节 (default_kp=40, default_kd=1) ===
+  left_shoulder_roll_joint:   { kp: 40, kd: 1,  default:  0.2000 }
+  left_shoulder_yaw_joint:    { kp: 40, kd: 1,  default:  0.0000 }
+  left_elbow_joint:           { kp: 40, kd: 1,  default: -0.9000 }
+  left_wrist_yaw_joint:       { kp: 40, kd: 1,  default:  0.0000 }
+  left_wrist_pitch_joint:     { kp: 40, kd: 1,  default:  0.0000 }
+  left_wrist_roll_joint:      { kp: 40, kd: 1,  default:  0.0000 }
+  right_shoulder_roll_joint:  { kp: 40, kd: 1,  default: -0.2000 }
+  right_shoulder_yaw_joint:   { kp: 40, kd: 1,  default:  0.0000 }
+  right_elbow_joint:          { kp: 40, kd: 1,  default: -0.9000 }
+  right_wrist_yaw_joint:      { kp: 40, kd: 1,  default:  0.0000 }
+  right_wrist_pitch_joint:    { kp: 40, kd: 1,  default:  0.0000 }
+  right_wrist_roll_joint:     { kp: 40, kd: 1,  default:  0.0000 }
+
+  # === HEAD ===
+  head_yaw_joint:             { kp: 10, kd: 1,  default:  0.0000 }
+  head_pitch_joint:           { kp: 10, kd: 1,  default:  0.0000 }

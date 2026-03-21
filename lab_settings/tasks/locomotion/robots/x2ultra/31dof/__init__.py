@@ -49,6 +49,17 @@ gym.register(
 )
 
 gym.register(
+    id="Zhiyuan-X2Ultra-31dof-Standard-Walking",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.standard_walking_env_cfg:StandardWalkingEnvCfg",
+        "play_env_cfg_entry_point": f"{__name__}.standard_walking_env_cfg:StandardWalkingPlayEnvCfg",
+        "rsl_rl_cfg_entry_point": _PPO_CFG,
+    },
+)
+
+gym.register(
     id="Zhiyuan-X2Ultra-31dof-Velocity-HRP5P",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
